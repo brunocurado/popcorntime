@@ -98,4 +98,28 @@ describe("LoginRoute", () => {
 
 		r.unmount();
 	});
+
+	it("continue as guest goes to movies", async () => {
+		mockIPC((cmd, _args) => {
+			if (cmd === "enable_guest_session") {
+				return;
+			}
+			if (cmd === "validate") {
+				return null;
+			}
+		});
+
+		const r = renderWithRouter();
+		await act(async () => {});
+
+		const btn = screen.getByRole("button", { name: "Continue as guest" });
+		await act(async () => {
+			btn.click();
+		});
+
+		expect(useGlobalStore.getState().session.isActive).toBe(true);
+		expect(screen.getByTestId("loc")).toHaveTextContent("/movies");
+
+		r.unmount();
+	});
 });

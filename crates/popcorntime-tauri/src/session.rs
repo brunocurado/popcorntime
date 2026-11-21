@@ -39,3 +39,12 @@ pub async fn validate(service: State<'_, AuthorizationService>) -> Result<(), Er
 pub async fn logout(service: State<'_, AuthorizationService>) -> Result<(), Error> {
   service.logout().await.map_err(Into::into)
 }
+
+/// Enter guest mode: offline bypass for when the accounts server is
+/// unreachable. Only no-account features (YTS) work as guest.
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(skip(service), err(Debug))]
+pub async fn enable_guest_session(service: State<'_, AuthorizationService>) -> Result<(), Error> {
+  service.enable_guest().map_err(Into::into)
+}

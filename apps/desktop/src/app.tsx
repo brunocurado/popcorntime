@@ -10,6 +10,7 @@ import { Providers } from "@/providers";
 import { BrowseRoute } from "@/routes/browse";
 import { LoginRoute } from "@/routes/login";
 import { MaintenanceRoute } from "@/routes/maintenance";
+import { MoviesRoute } from "@/routes/movies";
 import { NotFoundRoute } from "@/routes/not-found";
 import {
 	OnboardingFavoritesRoute,
@@ -70,6 +71,9 @@ export function App() {
 					<Route element={<RequireSession />}>
 						<Route path="/browse" element={<BrowseLayout />}>
 							<Route index element={<BrowseRoute />} />
+						</Route>
+						<Route path="/movies" element={<BrowseLayout />}>
+							<Route index element={<MoviesRoute />} />
 						</Route>
 					</Route>
 				</Routes>

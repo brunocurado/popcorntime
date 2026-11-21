@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useSearchParams } from "react-router";
+import { Link, useLocation, useSearchParams } from "react-router";
 import { CommandCenter } from "@/components/command-center";
 import { useTauri } from "@/hooks/useTauri";
 import { useGlobalStore } from "@/stores/global";
@@ -42,6 +42,8 @@ export function Header() {
 
 	const { t } = useTranslation();
 	const [searchParams] = useSearchParams();
+	const { pathname } = useLocation();
+	const onYtsMovies = pathname === "/movies";
 	const kind = useMemo(() => {
 		return (searchParams.get("kind") || "MOVIE") as MediaKind;
 	}, [searchParams]);
@@ -106,6 +108,17 @@ export function Header() {
 						>
 							<Tv className="h-4 w-4" />
 							<span>{t("browse.tv-shows")}</span>
+						</Link>
+						<Link
+							className={cn(
+								buttonVariants({ variant: "link" }),
+								onYtsMovies && "text-accent-foreground bg-accent",
+								"flex gap-2"
+							)}
+							to="/movies"
+						>
+							<Film className="h-4 w-4" />
+							<span>YTS</span>
 						</Link>
 						<Tooltip>
 							<TooltipTrigger asChild>

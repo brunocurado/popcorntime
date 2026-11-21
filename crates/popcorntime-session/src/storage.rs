@@ -27,6 +27,10 @@ pub struct SessionStore<S = InnerSessionStore> {
 pub struct InnerSessionStore {
   #[serde(default)]
   pub onboarding_complete: bool,
+  /// Guest mode: offline bypass when the accounts server is unreachable.
+  /// YTS-backed features need no account; GraphQL calls still fail.
+  #[serde(default)]
+  pub guest: bool,
   #[serde(default)]
   pub access_token: Option<String>,
   #[serde(default)]
@@ -112,6 +116,21 @@ impl SessionStore<InnerSessionStore> {
     Ok(())
   }
 
+  /// Enter or leave guest mode (offline bypass for a dead accounts server).
+  pub fn set_guest(&self, guest: bool) -> Result<()> {
+    match self.snapshot.write() {
+      Ok(mut settings) => {
+        settings.guest = guest;
+      }
+      Err(err) => {
+        tracing::error!("Failed to update guest flag: {:?}", err);
+        return Err(anyhow::anyhow!("Failed to update guest flag"));
+      }
+    }
+    self.save_and_signal()?;
+    Ok(())
+  }
+
   pub(crate) fn update_access_token(
     &self,
     access_token: String,
@@ -154,6 +173,7 @@ impl SessionStore<InnerSessionStore> {
         settings.access_token = None;
         settings.refresh_token = None;
         settings.expires_at = None;
+        settings.guest = false;
       }
       Err(err) => {
         tracing::error!("Failed to delete access_token: {:?}", err);

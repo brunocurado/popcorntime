@@ -6,3 +6,4 @@ pub mod logs;
 pub mod session;
 pub mod settings;
 pub mod window;
+pub mod yts;

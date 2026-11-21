@@ -141,6 +141,11 @@ impl AuthorizationService {
   }
 
   pub async fn validate(&self) -> Result<()> {
+    // guest path — offline bypass, no account needed
+    if self.is_guest() {
+      return Ok(());
+    }
+
     // fast path
     if self.fast_validate().await.is_ok() {
       return Ok(());
@@ -181,5 +186,18 @@ impl AuthorizationService {
 
   pub async fn logout(&self) -> Result<()> {
     self.store.delete_access_token()
+  }
+
+  /// Guest mode is stored alongside the session and survives restarts.
+  pub fn is_guest(&self) -> bool {
+    self
+      .store
+      .get_with_secrets()
+      .map(|s| s.guest)
+      .unwrap_or(false)
+  }
+
+  pub fn enable_guest(&self) -> Result<()> {
+    self.store.set_guest(true)
   }
 }

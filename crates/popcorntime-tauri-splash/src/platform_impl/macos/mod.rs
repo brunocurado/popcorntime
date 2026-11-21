@@ -90,11 +90,11 @@ impl<R: Runtime> WindowSplashExt for WebviewWindow<R> {
 
         // find and remove splash container
         for v in &subviews {
-          if let Some(id) = v.identifier()
-            && id.to_string() == SPLASH_CONTAINER_ID
-          {
-            v.removeFromSuperview();
-            break;
+          if let Some(id) = v.identifier() {
+            if id.to_string() == SPLASH_CONTAINER_ID {
+              v.removeFromSuperview();
+              break;
+            }
           }
         }
       }
