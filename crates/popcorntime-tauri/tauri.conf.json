@@ -14,7 +14,7 @@
     "security": {
       "csp": {
         "default-src": "'self'",
-        "img-src": "'self' asset: https://asset.localhost data: tauri://localhost https://*.popcorntime.app https://popcorntime.app https://yts.gg https://*.yts.gg",
+        "img-src": "'self' asset: https://asset.localhost data: tauri://localhost https://*.popcorntime.app https://popcorntime.app https:",
         "media-src": "'self' https://get.popcorntime.app",
         "connect-src": "'self'",
         "script-src": "'self'",

@@ -6,6 +6,7 @@
 //! API, so the commands deliberately skip `AuthorizationService`.
 
 use crate::error::Error;
+use popcorntime_yts_client::ExtraTorrent;
 use popcorntime_yts_client::{
   YtsEnvelope, YtsListMoviesParams, YtsMovieDetailsData, YtsMovieDetailsParams, YtsMovieIdParams,
   YtsMovieListData, YtsParentalGuidesData,
@@ -63,4 +64,15 @@ pub async fn yts_movie_parental_guides(
 #[instrument(err(Debug))]
 pub async fn yts_magnet_url(hash: String, name: String) -> Result<String, Error> {
   popcorntime_yts_client::magnet_url(&hash, &name, &[]).map_err(Into::into)
+}
+
+/// Extra torrents for a movie from Torrentio (multi-indexer) and The Pirate
+/// Bay, keyed by IMDb id. Sources fail independently.
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(err(Debug))]
+pub async fn extra_sources(imdb_code: String) -> Result<Vec<ExtraTorrent>, Error> {
+  popcorntime_yts_client::extra_sources(&imdb_code)
+    .await
+    .map_err(Into::into)
 }

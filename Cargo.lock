@@ -3753,6 +3753,7 @@ dependencies = [
  "popcorntime-session",
  "popcorntime-settings",
  "popcorntime-tauri-splash",
+ "popcorntime-yts-client",
  "serde",
  "serde_json",
  "specta",
@@ -3781,6 +3782,20 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation 0.3.1",
  "tauri",
+]
+
+[[package]]
+name = "popcorntime-yts-client"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "specta",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]

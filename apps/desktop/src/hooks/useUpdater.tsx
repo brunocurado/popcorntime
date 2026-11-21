@@ -8,6 +8,9 @@ import { useGlobalStore } from "@/stores/global";
 
 // 1 hour
 const UPDATE_INTERVAL_MS = 3600000;
+// This fork must never pull the official channel: it would replace the build
+// (YTS, guest mode, extra sources) with upstream, whose login server is dead.
+const updaterEnabled = () => import.meta.env.VITE_ENABLE_UPDATER === "true";
 export enum UpdateStatus {
 	Available = "available",
 	Manual = "manual",
@@ -54,6 +57,7 @@ export const UpdaterProvider = ({ children }: React.PropsWithChildren) => {
 	const nightly = useGlobalStore(state => state.app.nightly);
 
 	const check = useCallback(() => {
+		if (!updaterEnabled()) return;
 		checkUpdate()
 			.then(update => {
 				updaterSucceeded(update ?? undefined);

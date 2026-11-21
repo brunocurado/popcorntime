@@ -28,6 +28,7 @@ fn main() {
       popcorntime_tauri::yts::yts_movie_suggestions,
       popcorntime_tauri::yts::yts_movie_parental_guides,
       popcorntime_tauri::yts::yts_magnet_url,
+      popcorntime_tauri::yts::extra_sources,
       popcorntime_tauri::window::show_main_window,
       popcorntime_tauri::session::validate,
       popcorntime_tauri::session::logout,

@@ -1,5 +1,6 @@
 pub mod client;
 pub mod consts;
+pub mod sources;
 pub mod types;
 
 pub use client::{
@@ -7,6 +8,7 @@ pub use client::{
   movie_parental_guides, movie_suggestions,
 };
 pub use consts::{YTS_API_BASE_URL, YTS_DEFAULT_TRACKERS};
+pub use sources::{ExtraTorrent, extra_sources};
 pub use types::{
   YtsCast, YtsEnvelope, YtsListMoviesParams, YtsMovie, YtsMovieDetailsData, YtsMovieDetailsParams,
   YtsMovieIdParams, YtsMovieListData, YtsParentalGuide, YtsParentalGuidesData, YtsTorrent,

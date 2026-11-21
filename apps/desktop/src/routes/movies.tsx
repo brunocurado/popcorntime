@@ -7,7 +7,15 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useInfiniteScroll from "react-infinite-scroll-hook";
 import placeholderImg from "@/assets/placeholder.svg";
-import { type YtsMovie, mergeYtsMovie, ytsListMovies, ytsMagnetUrl, ytsMovieDetails } from "@/tauri/yts";
+import {
+	type ExtraTorrent,
+	extraSources,
+	mergeYtsMovie,
+	type YtsMovie,
+	ytsListMovies,
+	ytsMagnetUrl,
+	ytsMovieDetails,
+} from "@/tauri/yts";
 
 const SORTS = [
 	{ value: "seeds", label: "Seeds" },
@@ -94,6 +102,100 @@ function TorrentRow({
 	);
 }
 
+function MagnetButtons({ hash, name }: { hash: string; name: string }) {
+	const [copied, setCopied] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const copy = useCallback(async () => {
+		try {
+			await navigator.clipboard.writeText(await ytsMagnetUrl(hash, name));
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		} catch {
+			setError("Failed to build magnet link");
+		}
+	}, [hash, name]);
+	const open = useCallback(async () => {
+		try {
+			await openUrl(await ytsMagnetUrl(hash, name));
+		} catch {
+			setError("No torrent app handled the magnet link — copy it instead");
+		}
+	}, [hash, name]);
+	return (
+		<span className="ml-auto flex flex-wrap items-center gap-2">
+			<Button size="sm" variant="outline" onClick={copy}>
+				{copied ? "Copied!" : "Copy magnet"}
+			</Button>
+			<Button size="sm" onClick={open}>
+				Open
+			</Button>
+			{error && <span className="w-full text-xs text-red-500">{error}</span>}
+		</span>
+	);
+}
+
+/** Torrentio (multi-indexer) + The Pirate Bay, deduped against the YTS list. */
+function ExtraSources({ imdbCode, ytsHashes }: { imdbCode: string; ytsHashes: string[] }) {
+	const [items, setItems] = useState<ExtraTorrent[] | null>(null);
+	const [failed, setFailed] = useState(false);
+	const [showAll, setShowAll] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		setItems(null);
+		setFailed(false);
+		extraSources(imdbCode)
+			.then(res => {
+				if (!cancelled) setItems(res ?? []);
+			})
+			.catch(() => {
+				if (!cancelled) setFailed(true);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [imdbCode]);
+
+	const known = useMemo(() => new Set(ytsHashes.map(h => h.toLowerCase())), [ytsHashes]);
+	const fresh = (items ?? []).filter(t => !known.has(t.hash));
+	const visible = showAll ? fresh : fresh.slice(0, 8);
+
+	return (
+		<div className="flex flex-col gap-2">
+			<span className="text-sm font-medium">More sources (Torrentio · The Pirate Bay)</span>
+			{items === null && !failed && (
+				<p className="text-muted-foreground text-sm">Searching other sources…</p>
+			)}
+			{failed && (
+				<p className="text-muted-foreground text-sm">Other sources are unreachable right now.</p>
+			)}
+			{items !== null && fresh.length === 0 && (
+				<p className="text-muted-foreground text-sm">No extra torrents found.</p>
+			)}
+			{visible.map(t => (
+				<div
+					key={t.hash}
+					className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm"
+				>
+					{t.quality && <Badge variant="secondary">{t.quality}</Badge>}
+					<span className="min-w-0 flex-1 truncate" title={t.title}>
+						{t.title}
+					</span>
+					<span className="text-muted-foreground w-full text-xs">
+						{t.source} · {t.size || "?"} · {t.seeds} seeds
+					</span>
+					<MagnetButtons hash={t.hash} name={t.title} />
+				</div>
+			))}
+			{fresh.length > visible.length && (
+				<Button size="sm" variant="outline" onClick={() => setShowAll(true)}>
+					Show all {fresh.length}
+				</Button>
+			)}
+		</div>
+	);
+}
+
 function MovieDialog({ movie }: { movie: YtsMovie }) {
 	const [details, setDetails] = useState<YtsMovie | null>(null);
 
@@ -113,8 +215,7 @@ function MovieDialog({ movie }: { movie: YtsMovie }) {
 	const shown = useMemo(() => mergeYtsMovie(movie, details), [movie, details]);
 	// Plot fallback chain: many fresh uploads ship an empty synopsis,
 	// but description/summary usually carry the text.
-	const plot =
-		shown.synopsis || shown.description_full || shown.description_intro || shown.summary;
+	const plot = shown.synopsis || shown.description_full || shown.description_intro || shown.summary;
 	const imdbUrl = shown.imdb_code ? `https://www.imdb.com/title/${shown.imdb_code}/` : null;
 	const screenshots = [
 		shown.medium_screenshot_image1,
@@ -183,7 +284,10 @@ function MovieDialog({ movie }: { movie: YtsMovie }) {
 						<span className="text-sm font-medium">Cast</span>
 						<div className="flex gap-3 overflow-x-auto">
 							{topCast.map(c => (
-								<div key={`${c.name}-${c.character_name}`} className="flex w-20 shrink-0 flex-col items-center gap-1 text-center">
+								<div
+									key={`${c.name}-${c.character_name}`}
+									className="flex w-20 shrink-0 flex-col items-center gap-1 text-center"
+								>
 									{c.url_small_image ? (
 										<img
 											src={c.url_small_image}
@@ -216,6 +320,9 @@ function MovieDialog({ movie }: { movie: YtsMovie }) {
 						<p className="text-muted-foreground text-sm">No torrents listed for this movie.</p>
 					)}
 				</div>
+				{shown.imdb_code && (
+					<ExtraSources imdbCode={shown.imdb_code} ytsHashes={shown.torrents.map(t => t.hash)} />
+				)}
 			</div>
 		</>
 	);

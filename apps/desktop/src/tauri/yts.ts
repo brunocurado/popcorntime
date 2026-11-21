@@ -181,3 +181,17 @@ export function mergeYtsMovie(base: YtsMovie, extra: YtsMovie | null): YtsMovie 
 		cast: pick("cast"),
 	};
 }
+
+export interface ExtraTorrent {
+	source: string;
+	title: string;
+	hash: string;
+	quality: string;
+	seeds: number;
+	size: string;
+}
+
+/** Torrentio (multi-indexer) + The Pirate Bay, by IMDb id. */
+export async function extraSources(imdbCode: string): Promise<ExtraTorrent[]> {
+	return (await invoke("extra_sources", { imdbCode })) as ExtraTorrent[];
+}

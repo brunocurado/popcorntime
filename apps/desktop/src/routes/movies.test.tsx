@@ -160,4 +160,68 @@ describe("MoviesRoute", () => {
 
 		r.unmount();
 	});
+
+	it("lists extra sources and hides torrents YTS already has", async () => {
+		const ytsHash = "F27D21006A58C4073663B9363E7B2F2FBE8452F3";
+		mockIPC(cmd => {
+			if (cmd === "yts_list_movies") {
+				return {
+					status: "ok",
+					status_message: "ok",
+					data: {
+						movie_count: 1,
+						limit: 20,
+						page_number: 1,
+						movies: [
+							{
+								...MOVIES[0],
+								torrents: [
+									{
+										hash: ytsHash,
+										quality: "720p",
+										type: "web",
+										size: "700 MB",
+										seeds: 5,
+										peers: 2,
+									},
+								],
+							},
+						],
+					},
+				};
+			}
+			if (cmd === "yts_movie_details") return { status: "error", status_message: "x", data: {} };
+			if (cmd === "extra_sources") {
+				return [
+					{
+						source: "Torrentio · 1337x",
+						title: "13.2010.1080p.BluRay",
+						hash: "a".repeat(40),
+						quality: "1080p",
+						seeds: 40,
+						size: "1.4 GB",
+					},
+					{
+						source: "The Pirate Bay",
+						title: "13 (2010) dup of YTS",
+						hash: ytsHash.toLowerCase(),
+						quality: "720p",
+						seeds: 9,
+						size: "700 MB",
+					},
+				];
+			}
+		});
+
+		const r = renderMovies();
+		const poster = await screen.findByAltText("13");
+		await act(async () => {
+			fireEvent.click(poster);
+		});
+		expect(await screen.findByText("13.2010.1080p.BluRay")).toBeInTheDocument();
+		expect(screen.getByText(/Torrentio · 1337x/)).toBeInTheDocument();
+		expect(screen.queryByText("13 (2010) dup of YTS")).not.toBeInTheDocument();
+
+		r.unmount();
+	});
 });
