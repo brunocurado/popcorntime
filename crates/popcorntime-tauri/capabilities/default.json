@@ -35,6 +35,9 @@
           "url": "https://go.popcorntime.app/*"
         },
         {
+          "url": "https://www.imdb.com/*"
+        },
+        {
           "url": "https://popcorntime.app/*"
         },
         {

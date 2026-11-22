@@ -29,6 +29,13 @@ fn main() {
       popcorntime_tauri::yts::yts_movie_parental_guides,
       popcorntime_tauri::yts::yts_magnet_url,
       popcorntime_tauri::yts::extra_sources,
+      popcorntime_tauri::stream::stream_play,
+      popcorntime_tauri::stream::stream_stop,
+      popcorntime_tauri::stream::stream_status,
+      popcorntime_tauri::stream::subtitles_list,
+      popcorntime_tauri::stream::subtitle_vtt,
+      popcorntime_tauri::stream::open_in_vlc,
+      popcorntime_tauri::stream::open_magnet,
       popcorntime_tauri::window::show_main_window,
       popcorntime_tauri::session::validate,
       popcorntime_tauri::session::logout,
@@ -98,6 +105,9 @@ fn main() {
             name = %app_handle.package_info().name, "starting app"
           );
 
+          // in-app streaming (cache wiped now, on stop and on exit)
+          app_handle.manage(popcorntime_tauri::stream::StreamState::new(&app_cache_dir));
+
           // settings service
           let settings_service = SettingsService::new(&config_dir)?;
           app_handle.manage(settings_service);
@@ -155,10 +165,10 @@ fn main() {
         .plugin(log_plugin)
         .build(tauri::generate_context!())
         .expect("valid app")
-        .run(|_app_handle, event| {
-          if let tauri::RunEvent::Ready = event {
-            tracing::info!("Popcorn Time is ready!");
-          }
+        .run(|app_handle, event| match event {
+          tauri::RunEvent::Ready => tracing::info!("Popcorn Time is ready!"),
+          tauri::RunEvent::Exit => popcorntime_tauri::stream::wipe_on_exit(app_handle),
+          _ => {}
         });
     });
 }

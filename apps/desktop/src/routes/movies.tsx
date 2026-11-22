@@ -7,10 +7,12 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useInfiniteScroll from "react-infinite-scroll-hook";
 import placeholderImg from "@/assets/placeholder.svg";
+import { Player, type PlayRequest } from "@/components/player";
 import {
 	type ExtraTorrent,
 	extraSources,
 	mergeYtsMovie,
+	openMagnet,
 	type YtsMovie,
 	ytsListMovies,
 	ytsMagnetUrl,
@@ -51,36 +53,17 @@ function CoverImg({ movie }: { movie: YtsMovie }) {
 	);
 }
 
+type OnPlay = (magnet: string, title: string) => void;
+
 function TorrentRow({
 	torrent,
 	movieTitle,
+	onPlay,
 }: {
 	torrent: YtsMovie["torrents"][number];
 	movieTitle: string;
+	onPlay: OnPlay;
 }) {
-	const [copied, setCopied] = useState(false);
-	const [openError, setOpenError] = useState<string | null>(null);
-
-	const copyMagnet = useCallback(async () => {
-		try {
-			const magnet = await ytsMagnetUrl(torrent.hash, movieTitle);
-			await navigator.clipboard.writeText(magnet);
-			setCopied(true);
-			setTimeout(() => setCopied(false), 2000);
-		} catch {
-			setOpenError("Failed to build magnet link");
-		}
-	}, [torrent.hash, movieTitle]);
-
-	const openMagnet = useCallback(async () => {
-		try {
-			const magnet = await ytsMagnetUrl(torrent.hash, movieTitle);
-			await openUrl(magnet);
-		} catch {
-			setOpenError("No torrent app handled the magnet link — copy it instead");
-		}
-	}, [torrent.hash, movieTitle]);
-
 	return (
 		<div className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm">
 			<Badge variant="secondary">{torrent.quality}</Badge>
@@ -89,20 +72,12 @@ function TorrentRow({
 			<span className="text-muted-foreground">
 				{torrent.seeds} seeds / {torrent.peers} peers
 			</span>
-			<span className="ml-auto flex gap-2">
-				<Button size="sm" variant="outline" onClick={copyMagnet}>
-					{copied ? "Copied!" : "Copy magnet"}
-				</Button>
-				<Button size="sm" onClick={openMagnet}>
-					Open
-				</Button>
-			</span>
-			{openError && <span className="w-full text-xs text-red-500">{openError}</span>}
+			<MagnetButtons hash={torrent.hash} name={movieTitle} onPlay={onPlay} />
 		</div>
 	);
 }
 
-function MagnetButtons({ hash, name }: { hash: string; name: string }) {
+function MagnetButtons({ hash, name, onPlay }: { hash: string; name: string; onPlay: OnPlay }) {
 	const [copied, setCopied] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const copy = useCallback(async () => {
@@ -116,18 +91,28 @@ function MagnetButtons({ hash, name }: { hash: string; name: string }) {
 	}, [hash, name]);
 	const open = useCallback(async () => {
 		try {
-			await openUrl(await ytsMagnetUrl(hash, name));
+			await openMagnet(await ytsMagnetUrl(hash, name));
 		} catch {
 			setError("No torrent app handled the magnet link — copy it instead");
 		}
 	}, [hash, name]);
+	const play = useCallback(async () => {
+		try {
+			onPlay(await ytsMagnetUrl(hash, name), name);
+		} catch {
+			setError("Failed to build magnet link");
+		}
+	}, [hash, name, onPlay]);
 	return (
 		<span className="ml-auto flex flex-wrap items-center gap-2">
+			<Button size="sm" onClick={play}>
+				▶ Play
+			</Button>
 			<Button size="sm" variant="outline" onClick={copy}>
 				{copied ? "Copied!" : "Copy magnet"}
 			</Button>
-			<Button size="sm" onClick={open}>
-				Open
+			<Button size="sm" variant="outline" onClick={open}>
+				Torrent app
 			</Button>
 			{error && <span className="w-full text-xs text-red-500">{error}</span>}
 		</span>
@@ -135,7 +120,15 @@ function MagnetButtons({ hash, name }: { hash: string; name: string }) {
 }
 
 /** Torrentio (multi-indexer) + The Pirate Bay, deduped against the YTS list. */
-function ExtraSources({ imdbCode, ytsHashes }: { imdbCode: string; ytsHashes: string[] }) {
+function ExtraSources({
+	imdbCode,
+	ytsHashes,
+	onPlay,
+}: {
+	imdbCode: string;
+	ytsHashes: string[];
+	onPlay: OnPlay;
+}) {
 	const [items, setItems] = useState<ExtraTorrent[] | null>(null);
 	const [failed, setFailed] = useState(false);
 	const [showAll, setShowAll] = useState(false);
@@ -184,7 +177,7 @@ function ExtraSources({ imdbCode, ytsHashes }: { imdbCode: string; ytsHashes: st
 					<span className="text-muted-foreground w-full text-xs">
 						{t.source} · {t.size || "?"} · {t.seeds} seeds
 					</span>
-					<MagnetButtons hash={t.hash} name={t.title} />
+					<MagnetButtons hash={t.hash} name={t.title} onPlay={onPlay} />
 				</div>
 			))}
 			{fresh.length > visible.length && (
@@ -196,7 +189,7 @@ function ExtraSources({ imdbCode, ytsHashes }: { imdbCode: string; ytsHashes: st
 	);
 }
 
-function MovieDialog({ movie }: { movie: YtsMovie }) {
+function MovieDialog({ movie, onPlay }: { movie: YtsMovie; onPlay: (req: PlayRequest) => void }) {
 	const [details, setDetails] = useState<YtsMovie | null>(null);
 
 	useEffect(() => {
@@ -223,6 +216,10 @@ function MovieDialog({ movie }: { movie: YtsMovie }) {
 		shown.medium_screenshot_image3,
 	].filter(Boolean);
 	const topCast = (shown.cast ?? []).slice(0, 6);
+	const playTorrent = useCallback<OnPlay>(
+		(magnet, title) => onPlay({ magnet, title, imdbCode: shown.imdb_code }),
+		[onPlay, shown.imdb_code]
+	);
 
 	return (
 		<>
@@ -314,14 +311,23 @@ function MovieDialog({ movie }: { movie: YtsMovie }) {
 				)}
 				<div className="flex flex-col gap-2">
 					{shown.torrents.map(t => (
-						<TorrentRow key={t.hash} torrent={t} movieTitle={shown.title_long || shown.title} />
+						<TorrentRow
+							key={t.hash}
+							torrent={t}
+							movieTitle={shown.title_long || shown.title}
+							onPlay={playTorrent}
+						/>
 					))}
 					{shown.torrents.length === 0 && (
 						<p className="text-muted-foreground text-sm">No torrents listed for this movie.</p>
 					)}
 				</div>
 				{shown.imdb_code && (
-					<ExtraSources imdbCode={shown.imdb_code} ytsHashes={shown.torrents.map(t => t.hash)} />
+					<ExtraSources
+						imdbCode={shown.imdb_code}
+						ytsHashes={shown.torrents.map(t => t.hash)}
+						onPlay={playTorrent}
+					/>
 				)}
 			</div>
 		</>
@@ -338,6 +344,7 @@ export function MoviesRoute() {
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [selected, setSelected] = useState<YtsMovie | null>(null);
+	const [playing, setPlaying] = useState<{ req: PlayRequest; movie: YtsMovie } | null>(null);
 	// Filters actually applied to the accumulated list (set on Search).
 	const [applied, setApplied] = useState({ query: "", sortBy: "seeds", quality: "" });
 	const requestId = useRef(0);
@@ -489,9 +496,28 @@ export function MoviesRoute() {
 				}}
 			>
 				<DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
-					{selected && <MovieDialog key={selected.id} movie={selected} />}
+					{selected && (
+						<MovieDialog
+							key={selected.id}
+							movie={selected}
+							onPlay={req => {
+								setPlaying({ req, movie: selected });
+								setSelected(null);
+							}}
+						/>
+					)}
 				</DialogContent>
 			</Dialog>
+			{playing && (
+				<Player
+					request={playing.req}
+					onClose={() => {
+						// back to the movie window the user came from
+						setSelected(playing.movie);
+						setPlaying(null);
+					}}
+				/>
+			)}
 		</div>
 	);
 }

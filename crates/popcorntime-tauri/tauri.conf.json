@@ -15,7 +15,7 @@
       "csp": {
         "default-src": "'self'",
         "img-src": "'self' asset: https://asset.localhost data: tauri://localhost https://*.popcorntime.app https://popcorntime.app https:",
-        "media-src": "'self' https://get.popcorntime.app",
+        "media-src": "'self' https://get.popcorntime.app http://127.0.0.1:* blob:",
         "connect-src": "'self'",
         "script-src": "'self'",
         "style-src": "'self' 'unsafe-inline'"

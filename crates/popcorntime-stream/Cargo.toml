@@ -1,0 +1,21 @@
+[package]
+name = "popcorntime-stream"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+publish = false
+
+[dependencies]
+librqbit = { version = "9.1.0", default-features = false, features = ["http-api", "tracing-subscriber-utils", "default-tls"] }
+librqbit-dualstack-sockets = "0.7.0"
+anyhow.workspace = true
+reqwest = { workspace = true, features = ["json"] }
+serde.workspace = true
+serde_json.workspace = true
+specta = { workspace = true, features = ["serde", "derive"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "sync", "fs", "io-util"] }
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

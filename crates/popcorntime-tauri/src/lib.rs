@@ -5,5 +5,6 @@ pub mod graphql;
 pub mod logs;
 pub mod session;
 pub mod settings;
+pub mod stream;
 pub mod window;
 pub mod yts;

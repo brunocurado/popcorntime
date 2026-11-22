@@ -195,3 +195,63 @@ export interface ExtraTorrent {
 export async function extraSources(imdbCode: string): Promise<ExtraTorrent[]> {
 	return (await invoke("extra_sources", { imdbCode })) as ExtraTorrent[];
 }
+
+export interface StreamInfo {
+	torrent_id: number;
+	file_index: number;
+	file_name: string;
+	file_size: number;
+	url: string;
+	in_app: boolean;
+}
+
+export interface StreamStatus {
+	state: string;
+	progress_bytes: number;
+	total_bytes: number;
+	download_mbps: number;
+	peers: number;
+}
+
+export interface SubtitleTrack {
+	id: string;
+	lang: string;
+	label: string;
+	url: string;
+}
+
+export async function streamPlay(magnet: string): Promise<StreamInfo> {
+	return (await invoke("stream_play", { magnet })) as StreamInfo;
+}
+
+export async function streamStop(): Promise<void> {
+	await invoke("stream_stop");
+}
+
+export async function streamStatus(): Promise<StreamStatus | null> {
+	return (await invoke("stream_status")) as StreamStatus | null;
+}
+
+export async function subtitlesList(imdbCode: string): Promise<SubtitleTrack[]> {
+	return ((await invoke("subtitles_list", { imdbCode })) as SubtitleTrack[]) ?? [];
+}
+
+export async function subtitleVtt(url: string): Promise<string> {
+	return (await invoke("subtitle_vtt", { url })) as string;
+}
+
+export async function openInVlc(url: string, vtt?: string): Promise<void> {
+	await invoke("open_in_vlc", { url, vtt: vtt ?? null });
+}
+
+export async function openMagnet(magnet: string): Promise<void> {
+	await invoke("open_magnet", { magnet });
+}
+
+/** SRT → WebVTT for subtitles dropped onto the player. */
+export function srtToVtt(srt: string): string {
+	const body = srt.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+	if (body.trimStart().startsWith("WEBVTT")) return body;
+	const lines = body.split("\n").map(l => (l.includes("-->") ? l.replace(/,/g, ".") : l));
+	return `WEBVTT\n\n${lines.join("\n")}`;
+}

@@ -65,5 +65,6 @@ popcorntime-settings = { path = "crates/popcorntime-settings" }
 popcorntime-error = { path = "crates/popcorntime-error" }
 popcorntime-graphql-client = { path = "crates/popcorntime-graphql-client" }
 popcorntime-yts-client = { path = "crates/popcorntime-yts-client" }
+popcorntime-stream = { path = "crates/popcorntime-stream" }
 popcorntime-graphql-macros = { path = "crates/popcorntime-graphql-client/macros" }
 popcorntime-tauri-splash = { path = "crates/popcorntime-tauri-splash" }
