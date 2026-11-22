@@ -498,7 +498,7 @@ export function MoviesRoute() {
 				</Button>
 			</form>
 
-			<div className="flex flex-wrap gap-2" role="group" aria-label="Genres">
+			<fieldset className="m-0 flex flex-wrap gap-2 border-0 p-0" aria-label="Genres">
 				{GENRES.map(g => (
 					<Button
 						key={g.value || "all"}
@@ -511,7 +511,7 @@ export function MoviesRoute() {
 						{g.label}
 					</Button>
 				))}
-			</div>
+			</fieldset>
 
 			{error && <p className="text-sm text-red-500">{error}</p>}
 
