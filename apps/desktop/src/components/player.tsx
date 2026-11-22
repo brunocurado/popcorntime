@@ -1,4 +1,5 @@
 import { Button } from "@popcorntime/ui/components/button";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	openInVlc,
@@ -21,6 +22,20 @@ export interface PlayRequest {
 }
 
 const OFFSET_STEP = 0.5;
+const HIDE_CONTROLS_MS = 3000;
+
+/**
+ * WKWebView ships with the HTML Fullscreen API disabled, so the <video>
+ * fullscreen button does nothing. Fullscreen is the native window instead:
+ * the player already covers the whole window.
+ */
+async function setWindowFullscreen(on: boolean) {
+	try {
+		await getCurrentWindow().setFullscreen(on);
+	} catch {
+		// not running inside Tauri (tests) — ignore
+	}
+}
 
 function mb(bytes: number) {
 	return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
@@ -66,6 +81,61 @@ export function Player({ request, onClose }: { request: PlayRequest; onClose: ()
 	const [vtt, setVtt] = useState<string | null>(null);
 	const [offset, setOffset] = useState(0);
 	const [subError, setSubError] = useState<string | null>(null);
+	const [fullscreen, setFullscreen] = useState(false);
+	const [idle, setIdle] = useState(false);
+	const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	const fullscreenRef = useRef(false);
+	const toggleFullscreen = useCallback(() => {
+		const next = !fullscreenRef.current;
+		fullscreenRef.current = next;
+		setFullscreen(next);
+		void setWindowFullscreen(next);
+	}, []);
+
+	const close = useCallback(() => {
+		fullscreenRef.current = false;
+		void setWindowFullscreen(false);
+		onClose();
+	}, [onClose]);
+
+	// leave fullscreen if the player unmounts any other way
+	useEffect(() => () => void setWindowFullscreen(false), []);
+
+	// keyboard: F toggles fullscreen, Esc leaves it (or closes), space pauses
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			if (e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement) return;
+			if (e.key === "f" || e.key === "F") {
+				e.preventDefault();
+				toggleFullscreen();
+			} else if (e.key === "Escape") {
+				e.preventDefault();
+				if (fullscreen) toggleFullscreen();
+				else close();
+			} else if (e.key === " " && videoRef.current) {
+				e.preventDefault();
+				if (videoRef.current.paused) void videoRef.current.play();
+				else videoRef.current.pause();
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [fullscreen, toggleFullscreen, close]);
+
+	// in fullscreen the toolbar and cursor hide after a few idle seconds
+	const wake = useCallback(() => {
+		setIdle(false);
+		if (idleTimer.current) clearTimeout(idleTimer.current);
+		idleTimer.current = setTimeout(() => setIdle(true), HIDE_CONTROLS_MS);
+	}, []);
+	useEffect(() => {
+		wake();
+		return () => {
+			if (idleTimer.current) clearTimeout(idleTimer.current);
+		};
+	}, [wake]);
+	const hideChrome = fullscreen && idle;
 
 	// start streaming; always drop the torrent (and its cache) on close
 	useEffect(() => {
@@ -177,9 +247,14 @@ export function Player({ request, onClose }: { request: PlayRequest; onClose: ()
 			className="fixed inset-0 z-[100] flex flex-col bg-black text-white"
 			onDragOver={e => e.preventDefault()}
 			onDrop={onDrop}
+			onMouseMove={wake}
+			style={hideChrome ? { cursor: "none" } : undefined}
 		>
-			<div className="flex flex-wrap items-center gap-2 p-3 text-sm">
-				<Button size="sm" variant="secondary" onClick={onClose}>
+			<div
+				className="flex flex-wrap items-center gap-2 p-3 text-sm transition-opacity duration-300"
+				style={hideChrome ? { opacity: 0, pointerEvents: "none" } : undefined}
+			>
+				<Button size="sm" variant="secondary" onClick={close}>
 					✕ Close
 				</Button>
 				<span className="mr-auto truncate font-medium">{request.title}</span>
@@ -228,6 +303,15 @@ export function Player({ request, onClose }: { request: PlayRequest; onClose: ()
 						Open in VLC
 					</Button>
 				)}
+				<Button
+					size="sm"
+					variant="secondary"
+					onClick={toggleFullscreen}
+					aria-pressed={fullscreen}
+					title="Fullscreen (F)"
+				>
+					{fullscreen ? "⤡ Exit fullscreen" : "⤢ Fullscreen"}
+				</Button>
 			</div>
 			{subError && <p className="px-3 text-xs text-red-400">{subError}</p>}
 
@@ -242,6 +326,10 @@ export function Player({ request, onClose }: { request: PlayRequest; onClose: ()
 						controls
 						autoPlay
 						className="h-full w-full"
+						onDoubleClick={e => {
+							e.preventDefault();
+							toggleFullscreen();
+						}}
 						onError={() => setVideoError(true)}
 						onLoadedMetadata={syncCues}
 					/>

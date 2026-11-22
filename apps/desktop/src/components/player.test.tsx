@@ -1,4 +1,4 @@
-import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
+import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Player } from "@/components/player";
@@ -83,6 +83,53 @@ describe("Player", () => {
 			fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
 		});
 		expect(calls).toContain("open_in_vlc");
+		r.unmount();
+	});
+});
+
+describe("Player fullscreen", () => {
+	it("toggles the native window fullscreen with the button and F, and leaves it on close", async () => {
+		const fs: boolean[] = [];
+		mockIPC((cmd, args) => {
+			if (cmd === "plugin:window|set_fullscreen") fs.push((args as { value: boolean }).value);
+			if (cmd === "stream_play") {
+				return {
+					torrent_id: 0,
+					file_index: 0,
+					file_name: "a.mp4",
+					file_size: 1,
+					url: URL_MP4,
+					in_app: true,
+				};
+			}
+			if (cmd === "subtitles_list") return [];
+			return null;
+		});
+		mockWindows("main");
+		const onClose = vi.fn();
+		const r = render(<Player request={REQ} onClose={onClose} />);
+		await act(async () => {});
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: /Fullscreen/ }));
+		});
+		expect(screen.getByRole("button", { name: /Exit fullscreen/ })).toBeInTheDocument();
+		await act(async () => {
+			fireEvent.keyDown(window, { key: "f" });
+		});
+		expect(screen.getByRole("button", { name: /⤢ Fullscreen/ })).toBeInTheDocument();
+		await act(async () => {
+			fireEvent.keyDown(window, { key: "f" });
+		});
+		// Esc in fullscreen only leaves fullscreen
+		await act(async () => {
+			fireEvent.keyDown(window, { key: "Escape" });
+		});
+		expect(onClose).not.toHaveBeenCalled();
+		await act(async () => {
+			fireEvent.keyDown(window, { key: "Escape" });
+		});
+		expect(onClose).toHaveBeenCalled();
+		expect(fs).toEqual([true, false, true, false, false]);
 		r.unmount();
 	});
 });

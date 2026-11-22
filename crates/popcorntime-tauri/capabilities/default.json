@@ -17,6 +17,8 @@
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
     "core:window:allow-toggle-maximize",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
     "core:path:allow-resolve-directory",
     "fs:allow-resource-read-recursive",
     "updater:allow-check",
