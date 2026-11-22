@@ -255,3 +255,37 @@ export function srtToVtt(srt: string): string {
 	const lines = body.split("\n").map(l => (l.includes("-->") ? l.replace(/,/g, ".") : l));
 	return `WEBVTT\n\n${lines.join("\n")}`;
 }
+
+export interface Cue {
+	start: number;
+	end: number;
+	text: string;
+}
+
+function vttTime(s: string): number {
+	const m = s.trim().match(/(?:(\d+):)?(\d+):(\d+)[.,](\d+)/);
+	if (!m) return Number.NaN;
+	return Number(m[1] ?? 0) * 3600 + Number(m[2]) * 60 + Number(m[3]) + Number(m[4]) / 1000;
+}
+
+/**
+ * Parse WebVTT into cues. The player adds them through the TextTrack API:
+ * WKWebView never loads <track src> for these streams, addCue always works.
+ */
+export function parseVtt(vtt: string): Cue[] {
+	const cues: Cue[] = [];
+	for (const block of vtt.replace(/\r\n?/g, "\n").split(/\n\n+/)) {
+		const lines = block.split("\n");
+		const i = lines.findIndex(l => l.includes("-->"));
+		if (i < 0) continue;
+		const [a = "", b = ""] = (lines[i] as string).split("-->");
+		const start = vttTime(a);
+		const end = vttTime(b.trim().split(/\s+/)[0] ?? "");
+		const text = lines
+			.slice(i + 1)
+			.join("\n")
+			.trim();
+		if (Number.isFinite(start) && Number.isFinite(end) && text) cues.push({ start, end, text });
+	}
+	return cues;
+}

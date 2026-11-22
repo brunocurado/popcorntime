@@ -8,7 +8,8 @@ pub mod subtitles;
 
 use anyhow::{Context, Result};
 use librqbit::{
-  AddTorrent, AddTorrentOptions, AddTorrentResponse, Api, Session, SessionOptions,
+  AddTorrent, AddTorrentOptions, AddTorrentResponse, Api, DhtSessionConfig, Session,
+  SessionOptions,
   api::TorrentIdOrHash,
   http_api::{HttpApi, HttpApiOptions},
 };
@@ -87,6 +88,11 @@ impl StreamEngine {
       SessionOptions {
         fastresume: false,
         persistence: None,
+        // random DHT port and no state outside the cache dir
+        dht: Some(DhtSessionConfig {
+          persistence: None,
+          ..Default::default()
+        }),
         ..Default::default()
       },
     )

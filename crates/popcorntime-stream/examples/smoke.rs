@@ -47,6 +47,9 @@ async fn main() -> anyhow::Result<()> {
   );
   if let Some(s) = subs.first() {
     let vtt = subtitles::fetch_vtt(&s.url).await?;
+    if let Ok(path) = std::env::var("SMOKE_VTT") {
+      std::fs::write(path, &vtt)?;
+    }
     println!(
       "VTT {} chars, head: {:?}",
       vtt.len(),

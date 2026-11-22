@@ -2,6 +2,7 @@ import { Button } from "@popcorntime/ui/components/button";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	openInVlc,
+	parseVtt,
 	type StreamInfo,
 	type StreamStatus,
 	type SubtitleTrack,
@@ -25,13 +26,27 @@ function mb(bytes: number) {
 	return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 }
 
-/** Shift every cue of a text track by `delta` seconds. */
-function shiftCues(track: TextTrack | undefined, delta: number) {
-	if (!track?.cues || delta === 0) return;
-	for (const cue of Array.from(track.cues)) {
-		cue.startTime = Math.max(0, cue.startTime + delta);
-		cue.endTime = Math.max(0, cue.endTime + delta);
+/** Replace the cues of the player's subtitle track (offset in seconds). */
+function applyCues(
+	video: HTMLVideoElement | null,
+	trackRef: { current: TextTrack | null },
+	vtt: string | null,
+	offset: number
+) {
+	if (!video || typeof video.addTextTrack !== "function" || typeof VTTCue === "undefined") return;
+	if (!trackRef.current) trackRef.current = video.addTextTrack("subtitles", "Subtitles");
+	const track = trackRef.current;
+	for (const cue of Array.from(track.cues ?? [])) track.removeCue(cue);
+	if (!vtt) {
+		track.mode = "disabled";
+		return;
 	}
+	for (const c of parseVtt(vtt)) {
+		const start = Math.max(0, c.start + offset);
+		const end = Math.max(start, c.end + offset);
+		track.addCue(new VTTCue(start, end, c.text));
+	}
+	track.mode = "showing";
 }
 
 /**
@@ -41,6 +56,7 @@ function shiftCues(track: TextTrack | undefined, delta: number) {
  */
 export function Player({ request, onClose }: { request: PlayRequest; onClose: () => void }) {
 	const videoRef = useRef<HTMLVideoElement>(null);
+	const trackRef = useRef<TextTrack | null>(null);
 	const [info, setInfo] = useState<StreamInfo | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [videoError, setVideoError] = useState(false);
@@ -48,7 +64,6 @@ export function Player({ request, onClose }: { request: PlayRequest; onClose: ()
 	const [subs, setSubs] = useState<SubtitleTrack[] | null>(null);
 	const [subId, setSubId] = useState<string>("");
 	const [vtt, setVtt] = useState<string | null>(null);
-	const [vttUrl, setVttUrl] = useState<string | null>(null);
 	const [offset, setOffset] = useState(0);
 	const [subError, setSubError] = useState<string | null>(null);
 
@@ -105,17 +120,19 @@ export function Player({ request, onClose }: { request: PlayRequest; onClose: ()
 		};
 	}, [subs, subId]);
 
-	// turn VTT text into a <track> source
+	// a new subtitle starts in sync
 	useEffect(() => {
-		if (!vtt) {
-			setVttUrl(null);
-			return;
-		}
-		const url = URL.createObjectURL(new Blob([vtt], { type: "text/vtt" }));
-		setVttUrl(url);
 		setOffset(0);
-		return () => URL.revokeObjectURL(url);
 	}, [vtt]);
+
+	// (re)build cues whenever the text or the sync offset changes
+	const syncCues = useCallback(
+		() => applyCues(videoRef.current, trackRef, vtt, offset),
+		[vtt, offset]
+	);
+	useEffect(() => {
+		syncCues();
+	}, [syncCues]);
 
 	// live download stats
 	useEffect(() => {
@@ -129,13 +146,7 @@ export function Player({ request, onClose }: { request: PlayRequest; onClose: ()
 	}, [info]);
 
 	const nudge = useCallback((delta: number) => {
-		shiftCues(videoRef.current?.textTracks[0], delta);
 		setOffset(o => Math.round((o + delta) * 10) / 10);
-	}, []);
-
-	const showTrack = useCallback(() => {
-		const track = videoRef.current?.textTracks[0];
-		if (track) track.mode = "showing";
 	}, []);
 
 	const vlc = useCallback(() => {
@@ -232,12 +243,8 @@ export function Player({ request, onClose }: { request: PlayRequest; onClose: ()
 						autoPlay
 						className="h-full w-full"
 						onError={() => setVideoError(true)}
-						onLoadedMetadata={showTrack}
-					>
-						{vttUrl && (
-							<track key={vttUrl} kind="subtitles" src={vttUrl} default onLoad={showTrack} />
-						)}
-					</video>
+						onLoadedMetadata={syncCues}
+					/>
 				)}
 				{info && !playsHere && (
 					<div className="flex max-w-lg flex-col items-center gap-3 p-6 text-center">

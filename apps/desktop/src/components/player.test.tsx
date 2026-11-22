@@ -2,7 +2,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Player } from "@/components/player";
-import { srtToVtt } from "@/tauri/yts";
+import { parseVtt, srtToVtt } from "@/tauri/yts";
 
 const REQ = { magnet: "magnet:?xt=urn:btih:abc", title: "The Matrix", imdbCode: "tt0133093" };
 const URL_MP4 = "http://127.0.0.1:5000/torrents/0/stream/3/The.Matrix.mp4";
@@ -40,8 +40,6 @@ function mockStream(inApp: boolean) {
 
 beforeEach(() => {
 	calls = [];
-	URL.createObjectURL = vi.fn(() => "blob:sub");
-	URL.revokeObjectURL = vi.fn();
 });
 
 afterEach(() => {
@@ -61,7 +59,6 @@ describe("Player", () => {
 		const picker = (await screen.findByLabelText("Subtitles")) as HTMLSelectElement;
 		expect(picker.value).toBe("1");
 		await act(async () => {});
-		expect(document.querySelector("track")?.getAttribute("src")).toBe("blob:sub");
 		expect(screen.getByText("+0.5s")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByText("✕ Close"));
@@ -94,5 +91,17 @@ describe("srtToVtt", () => {
 	it("converts timestamps and keeps commas in text", () => {
 		const vtt = srtToVtt("\uFEFF1\r\n00:00:01,500 --> 00:00:02,000\r\nSim, claro\r\n");
 		expect(vtt).toBe("WEBVTT\n\n1\n00:00:01.500 --> 00:00:02.000\nSim, claro\n");
+	});
+});
+
+describe("parseVtt", () => {
+	it("parses cues with hours, settings and multi-line text", () => {
+		const cues = parseVtt(
+			"WEBVTT\n\n1\n00:00:47.812 --> 00:00:51.088 align:start\n- Está tudo preparado?\n- Sim\n\n2\n01:02:03.500 --> 01:02:04.000\nFim\n"
+		);
+		expect(cues).toEqual([
+			{ start: 47.812, end: 51.088, text: "- Está tudo preparado?\n- Sim" },
+			{ start: 3723.5, end: 3724, text: "Fim" },
+		]);
 	});
 });
