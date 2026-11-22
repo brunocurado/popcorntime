@@ -31,6 +31,33 @@ const SORTS = [
 ] as const;
 
 const DEFAULT_SORT = "download_count";
+
+// YTS `genre` values (verified against the live API), labelled in PT-PT.
+const GENRES = [
+	{ value: "", label: "Todos" },
+	{ value: "action", label: "Ação" },
+	{ value: "adventure", label: "Aventura" },
+	{ value: "animation", label: "Animação" },
+	{ value: "biography", label: "Biografia" },
+	{ value: "comedy", label: "Comédia" },
+	{ value: "crime", label: "Crime" },
+	{ value: "documentary", label: "Documentário" },
+	{ value: "drama", label: "Drama" },
+	{ value: "family", label: "Família" },
+	{ value: "fantasy", label: "Fantasia" },
+	{ value: "sci-fi", label: "Ficção científica" },
+	{ value: "film-noir", label: "Film-noir" },
+	{ value: "war", label: "Guerra" },
+	{ value: "history", label: "História" },
+	{ value: "mystery", label: "Mistério" },
+	{ value: "music", label: "Música" },
+	{ value: "musical", label: "Musical" },
+	{ value: "romance", label: "Romance" },
+	{ value: "sport", label: "Desporto" },
+	{ value: "thriller", label: "Suspense" },
+	{ value: "horror", label: "Terror" },
+	{ value: "western", label: "Western" },
+] as const;
 const orderFor = (sortBy: string) => SORTS.find(s => s.value === sortBy)?.order ?? "desc";
 
 const QUALITIES = ["", "480p", "720p", "1080p", "1080p.x265", "2160p", "3D"] as const;
@@ -351,7 +378,12 @@ export function MoviesRoute() {
 	const [selected, setSelected] = useState<YtsMovie | null>(null);
 	const [playing, setPlaying] = useState<{ req: PlayRequest; movie: YtsMovie } | null>(null);
 	// Filters actually applied to the accumulated list (set on Search).
-	const [applied, setApplied] = useState({ query: "", sortBy: DEFAULT_SORT, quality: "" });
+	const [applied, setApplied] = useState({
+		query: "",
+		sortBy: DEFAULT_SORT,
+		quality: "",
+		genre: "",
+	});
 	const requestId = useRef(0);
 
 	const loadPage = useCallback(
@@ -367,6 +399,7 @@ export function MoviesRoute() {
 					sortBy: filters.sortBy,
 					orderBy: orderFor(filters.sortBy),
 					quality: filters.quality || undefined,
+					genre: filters.genre || undefined,
 				});
 				if (id !== requestId.current) return;
 				if (res.status !== "ok") throw new Error(res.status_message);
@@ -421,7 +454,7 @@ export function MoviesRoute() {
 				className="flex flex-wrap gap-2"
 				onSubmit={e => {
 					e.preventDefault();
-					setApplied({ query, sortBy, quality });
+					setApplied(a => ({ ...a, query, sortBy, quality }));
 				}}
 			>
 				<Input
@@ -435,7 +468,7 @@ export function MoviesRoute() {
 					value={sortBy}
 					onChange={e => {
 						setSortBy(e.target.value);
-						setApplied({ query, sortBy: e.target.value, quality });
+						setApplied(a => ({ ...a, query, sortBy: e.target.value, quality }));
 					}}
 					aria-label="Sort by"
 				>
@@ -450,7 +483,7 @@ export function MoviesRoute() {
 					value={quality}
 					onChange={e => {
 						setQuality(e.target.value);
-						setApplied({ query, sortBy, quality: e.target.value });
+						setApplied(a => ({ ...a, query, sortBy, quality: e.target.value }));
 					}}
 					aria-label="Quality"
 				>
@@ -464,6 +497,21 @@ export function MoviesRoute() {
 					{isLoading ? "Loading…" : "Search"}
 				</Button>
 			</form>
+
+			<div className="flex flex-wrap gap-2" role="group" aria-label="Genres">
+				{GENRES.map(g => (
+					<Button
+						key={g.value || "all"}
+						type="button"
+						size="sm"
+						variant={applied.genre === g.value ? "default" : "outline"}
+						aria-pressed={applied.genre === g.value}
+						onClick={() => setApplied(a => ({ ...a, genre: g.value }))}
+					>
+						{g.label}
+					</Button>
+				))}
+			</div>
 
 			{error && <p className="text-sm text-red-500">{error}</p>}
 

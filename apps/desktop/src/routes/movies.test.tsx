@@ -250,4 +250,32 @@ describe("MoviesRoute", () => {
 		expect(seen.at(-1)).toMatchObject({ sortBy: "title", orderBy: "asc" });
 		r.unmount();
 	});
+
+	it("filters by genre from the genre bar", async () => {
+		const seen: { genre?: string; sortBy?: string }[] = [];
+		mockIPC((cmd, args) => {
+			if (cmd === "yts_list_movies") {
+				seen.push((args as { params: { genre?: string; sortBy?: string } }).params);
+				return {
+					status: "ok",
+					status_message: "ok",
+					data: { movie_count: 1, limit: 20, page_number: 1, movies: MOVIES },
+				};
+			}
+		});
+		const r = renderMovies();
+		await screen.findByAltText("13");
+		expect(seen[0]?.genre).toBeUndefined();
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "Terror" }));
+		});
+		expect(seen.at(-1)).toMatchObject({ genre: "horror", sortBy: "download_count" });
+		expect(screen.getByRole("button", { name: "Terror" })).toHaveAttribute("aria-pressed", "true");
+		await act(async () => {
+			fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "rating" } });
+		});
+		// changing the sort keeps the genre
+		expect(seen.at(-1)).toMatchObject({ genre: "horror", sortBy: "rating" });
+		r.unmount();
+	});
 });
