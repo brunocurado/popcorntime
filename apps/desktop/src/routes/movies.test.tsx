@@ -224,4 +224,30 @@ describe("MoviesRoute", () => {
 
 		r.unmount();
 	});
+
+	it("re-queries as soon as the sort changes, with a sort YTS honours", async () => {
+		const seen: { sortBy?: string; orderBy?: string }[] = [];
+		mockIPC((cmd, args) => {
+			if (cmd === "yts_list_movies") {
+				seen.push((args as { params: { sortBy?: string; orderBy?: string } }).params);
+				return {
+					status: "ok",
+					status_message: "ok",
+					data: { movie_count: 1, limit: 20, page_number: 1, movies: MOVIES },
+				};
+			}
+		});
+		const r = renderMovies();
+		await screen.findByAltText("13");
+		expect(seen[0]?.sortBy).toBe("download_count");
+		const options = Array.from((screen.getByLabelText("Sort by") as HTMLSelectElement).options).map(
+			o => o.value
+		);
+		expect(options).not.toContain("seeds");
+		await act(async () => {
+			fireEvent.change(screen.getByLabelText("Sort by"), { target: { value: "title" } });
+		});
+		expect(seen.at(-1)).toMatchObject({ sortBy: "title", orderBy: "asc" });
+		r.unmount();
+	});
 });

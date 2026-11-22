@@ -19,14 +19,19 @@ import {
 	ytsMovieDetails,
 } from "@/tauri/yts";
 
+// The YTS API silently ignores sort_by=seeds/peers (returns date_added order),
+// so only sorts it really honours are offered.
 const SORTS = [
-	{ value: "seeds", label: "Seeds" },
-	{ value: "peers", label: "Peers" },
-	{ value: "rating", label: "Rating" },
-	{ value: "year", label: "Year" },
-	{ value: "date_added", label: "Latest" },
-	{ value: "download_count", label: "Downloads" },
+	{ value: "download_count", label: "Popular", order: "desc" },
+	{ value: "like_count", label: "Most liked", order: "desc" },
+	{ value: "rating", label: "Rating", order: "desc" },
+	{ value: "date_added", label: "Latest added", order: "desc" },
+	{ value: "year", label: "Year", order: "desc" },
+	{ value: "title", label: "Title A–Z", order: "asc" },
 ] as const;
+
+const DEFAULT_SORT = "download_count";
+const orderFor = (sortBy: string) => SORTS.find(s => s.value === sortBy)?.order ?? "desc";
 
 const QUALITIES = ["", "480p", "720p", "1080p", "1080p.x265", "2160p", "3D"] as const;
 
@@ -336,7 +341,7 @@ function MovieDialog({ movie, onPlay }: { movie: YtsMovie; onPlay: (req: PlayReq
 
 export function MoviesRoute() {
 	const [query, setQuery] = useState("");
-	const [sortBy, setSortBy] = useState<string>("seeds");
+	const [sortBy, setSortBy] = useState<string>(DEFAULT_SORT);
 	const [quality, setQuality] = useState<string>("");
 	const [movies, setMovies] = useState<YtsMovie[]>([]);
 	const [movieCount, setMovieCount] = useState(0);
@@ -346,7 +351,7 @@ export function MoviesRoute() {
 	const [selected, setSelected] = useState<YtsMovie | null>(null);
 	const [playing, setPlaying] = useState<{ req: PlayRequest; movie: YtsMovie } | null>(null);
 	// Filters actually applied to the accumulated list (set on Search).
-	const [applied, setApplied] = useState({ query: "", sortBy: "seeds", quality: "" });
+	const [applied, setApplied] = useState({ query: "", sortBy: DEFAULT_SORT, quality: "" });
 	const requestId = useRef(0);
 
 	const loadPage = useCallback(
@@ -360,7 +365,7 @@ export function MoviesRoute() {
 					page: pageNumber,
 					queryTerm: filters.query || undefined,
 					sortBy: filters.sortBy,
-					orderBy: "desc",
+					orderBy: orderFor(filters.sortBy),
 					quality: filters.quality || undefined,
 				});
 				if (id !== requestId.current) return;
@@ -428,7 +433,10 @@ export function MoviesRoute() {
 				<select
 					className={cn(buttonVariants({ variant: "outline", size: "default" }), "cursor-pointer")}
 					value={sortBy}
-					onChange={e => setSortBy(e.target.value)}
+					onChange={e => {
+						setSortBy(e.target.value);
+						setApplied({ query, sortBy: e.target.value, quality });
+					}}
 					aria-label="Sort by"
 				>
 					{SORTS.map(s => (
@@ -440,7 +448,10 @@ export function MoviesRoute() {
 				<select
 					className={cn(buttonVariants({ variant: "outline", size: "default" }), "cursor-pointer")}
 					value={quality}
-					onChange={e => setQuality(e.target.value)}
+					onChange={e => {
+						setQuality(e.target.value);
+						setApplied({ query, sortBy, quality: e.target.value });
+					}}
 					aria-label="Quality"
 				>
 					{QUALITIES.map(q => (
