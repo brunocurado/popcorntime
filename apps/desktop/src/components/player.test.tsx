@@ -202,6 +202,127 @@ describe("Player resume, progress and next episode", () => {
 	});
 });
 
+describe("Player waits for a translated subtitle while the film buffers", () => {
+	function mockTranslation(progress: () => unknown, startArgs: unknown[]) {
+		mockIPC((cmd, args) => {
+			calls.push(cmd);
+			if (cmd === "stream_play") {
+				return {
+					torrent_id: 2,
+					file_index: 0,
+					file_name: "Insidious.2026.mp4",
+					file_size: 1e9,
+					url: URL_MP4,
+					play_url: URL_MP4,
+					in_app: true,
+					remuxed: false,
+					time_offset: 0,
+					duration: 5400,
+				};
+			}
+			if (cmd === "subtitles_list") {
+				// no Portuguese anywhere, English available
+				return [
+					{ id: "e1", lang: "eng", label: "English", url: "https://subs/e1" },
+					{ id: "s1", lang: "spa", label: "Español", url: "https://subs/s1" },
+				];
+			}
+			if (cmd === "subtitle_translate_start") {
+				startArgs.push(args);
+				return 7;
+			}
+			if (cmd === "subtitle_translate_progress") return progress();
+			if (cmd === "subtitle_vtt") return "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello\n";
+			return null;
+		});
+	}
+
+	it("offers PT translated from English, holds the video until the first batch, then plays", async () => {
+		const startArgs: unknown[] = [];
+		let done = 10;
+		mockTranslation(
+			() => ({
+				done,
+				total: 900,
+				ready_until: 40,
+				vtt: "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nOlá\n",
+				finished: false,
+				error: null,
+			}),
+			startArgs
+		);
+		vi.useFakeTimers({ shouldAdvanceTime: true });
+		const r = render(<Player request={{ ...REQ, startAt: 0 }} onClose={() => {}} />);
+		await act(async () => {});
+		await act(async () => {});
+		const picker = (await screen.findByLabelText("Subtitles")) as HTMLSelectElement;
+		expect(picker.value).toBe("tr-por");
+		expect(
+			screen.getByRole("option", { name: "Português (traduzido do inglês)" })
+		).toBeInTheDocument();
+		expect(startArgs[0]).toEqual({ url: "https://subs/e1", startAt: 0 });
+
+		// first batch not in yet: video kept hidden, waiting screen shown
+		expect(screen.getByText("A preparar o filme com legenda em português…")).toBeInTheDocument();
+		expect(screen.getByText(/A traduzir a legenda: 10\/25 falas/)).toBeInTheDocument();
+		expect((document.querySelector("video") as HTMLVideoElement).style.visibility).toBe("hidden");
+
+		done = 25;
+		await act(async () => {
+			vi.advanceTimersByTime(2100);
+		});
+		await act(async () => {});
+		expect(screen.queryByText("A preparar o filme com legenda em português…")).toBeNull();
+		expect((document.querySelector("video") as HTMLVideoElement).style.visibility).toBe("");
+		expect(screen.getByText("tradução 25/900")).toBeInTheDocument();
+		vi.useRealTimers();
+		r.unmount();
+		await act(async () => {});
+		expect(calls).toContain("subtitle_translate_cancel");
+	});
+
+	it("falls back to English when the translator is unavailable", async () => {
+		mockTranslation(
+			() => ({
+				done: 0,
+				total: 900,
+				ready_until: 0,
+				vtt: "WEBVTT\n\n",
+				finished: true,
+				error: "falta o pacote de tradução Inglês → Português",
+			}),
+			[]
+		);
+		const r = render(<Player request={REQ} onClose={() => {}} />);
+		await act(async () => {});
+		await act(async () => {});
+		await act(async () => {});
+		expect((screen.getByLabelText("Subtitles") as HTMLSelectElement).value).toBe("e1");
+		expect(screen.getByText(/Tradução indisponível — a usar inglês/)).toBeInTheDocument();
+		r.unmount();
+	});
+
+	it("'Começar já' plays without waiting", async () => {
+		mockTranslation(
+			() => ({
+				done: 0,
+				total: 900,
+				ready_until: 0,
+				vtt: "WEBVTT\n\n",
+				finished: false,
+				error: null,
+			}),
+			[]
+		);
+		const r = render(<Player request={REQ} onClose={() => {}} />);
+		await act(async () => {});
+		await act(async () => {});
+		fireEvent.click(screen.getByRole("button", { name: "Começar já" }));
+		expect((document.querySelector("video") as HTMLVideoElement).style.visibility).toBe("");
+		r.unmount();
+	});
+});
+
 describe("Player fullscreen", () => {
 	it("toggles the native window fullscreen with the button and F, and leaves it on close", async () => {
 		const fs: boolean[] = [];

@@ -11,6 +11,7 @@ use popcorntime_stream::{
     SecretStore, TRACK_SCHEME,
   },
   subtitles::{SubtitleTrack, PREFERRED_LANGS},
+  translate::{TranslationJob, TranslationProgress},
   FileHint, StreamEngine, StreamInfo, StreamStatus,
 };
 use std::{path::PathBuf, sync::Arc};
@@ -20,6 +21,8 @@ use tracing::instrument;
 
 pub struct StreamState {
   dir: PathBuf,
+  tools_dir: PathBuf,
+  translation: std::sync::Mutex<Option<(u64, Arc<TranslationJob>)>>,
   engine: OnceCell<Arc<StreamEngine>>,
   trailer_port: OnceCell<u16>,
   opensubs: OpenSubtitles,
@@ -28,6 +31,7 @@ pub struct StreamState {
 impl StreamState {
   pub fn new(app_cache_dir: &std::path::Path) -> Self {
     let dir = app_cache_dir.join("stream");
+    let tools_dir = app_cache_dir.join("bin");
     let _ = std::fs::remove_dir_all(&dir);
     let store: Box<dyn SecretStore> = match KeychainStore::new() {
       Ok(k) => Box::new(k),
@@ -38,6 +42,8 @@ impl StreamState {
     };
     Self {
       dir,
+      tools_dir,
+      translation: std::sync::Mutex::new(None),
       engine: OnceCell::new(),
       trailer_port: OnceCell::new(),
       opensubs: OpenSubtitles::new(store),
@@ -171,13 +177,64 @@ pub async fn subtitles_list(
 #[specta::specta]
 #[instrument(skip(state), err(Debug))]
 pub async fn subtitle_vtt(state: State<'_, StreamState>, url: String) -> Result<String, Error> {
+  Ok(fetch_any_vtt(&state, &url).await?)
+}
+
+async fn fetch_any_vtt(state: &StreamState, url: &str) -> anyhow::Result<String> {
   if url.starts_with(TRACK_SCHEME) {
-    return Ok(state.opensubs.fetch_vtt(&url).await?);
+    return state.opensubs.fetch_vtt(url).await;
   }
   if url.starts_with(popcorntime_stream::ytssubs::TRACK_SCHEME) {
-    return Ok(popcorntime_stream::ytssubs::fetch_vtt(&url).await?);
+    return popcorntime_stream::ytssubs::fetch_vtt(url).await;
   }
-  Ok(popcorntime_stream::subtitles::fetch_vtt(&url).await?)
+  popcorntime_stream::subtitles::fetch_vtt(url).await
+}
+
+static TRANSLATION_IDS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+/// Translate an English subtitle to Portuguese on the Mac, starting at
+/// `start_at` seconds. Replaces any previous translation. Returns a job id.
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(skip(state), err(Debug))]
+pub async fn subtitle_translate_start(
+  state: State<'_, StreamState>,
+  url: String,
+  start_at: Option<f64>,
+) -> Result<u64, Error> {
+  let run = async {
+    let exe = popcorntime_stream::translate::install_helper(&state.tools_dir)?;
+    let vtt = fetch_any_vtt(&state, &url).await?;
+    let job = TranslationJob::start(exe, &vtt, start_at.unwrap_or(0.0).max(0.0));
+    let id = TRANSLATION_IDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    if let Some((_, old)) = state.translation.lock().unwrap().replace((id, job)) {
+      old.cancel();
+    }
+    Ok(id)
+  };
+  run.await.map_err(|e: anyhow::Error| e.into())
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+pub async fn subtitle_translate_progress(
+  state: State<'_, StreamState>,
+  job_id: u64,
+) -> Result<Option<TranslationProgress>, Error> {
+  let guard = state.translation.lock().unwrap();
+  Ok(match &*guard {
+    Some((id, job)) if *id == job_id => Some(job.progress()),
+    _ => None,
+  })
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+pub async fn subtitle_translate_cancel(state: State<'_, StreamState>) -> Result<(), Error> {
+  if let Some((_, job)) = state.translation.lock().unwrap().take() {
+    job.cancel();
+  }
+  Ok(())
 }
 
 /// OpenSubtitles.com fallback: is it configured, as whom, downloads left.

@@ -12,6 +12,7 @@ pub mod opensubtitles;
 pub mod remux;
 pub mod subtitles;
 pub mod trailer;
+pub mod translate;
 pub mod ytssubs;
 
 use anyhow::{Context, Result};

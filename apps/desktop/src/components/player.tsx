@@ -14,7 +14,11 @@ import {
 	streamStatus,
 	streamStop,
 	subtitlesList,
+	subtitleTranslateCancel,
+	subtitleTranslateProgress,
+	subtitleTranslateStart,
 	subtitleVtt,
+	type TranslationProgress,
 } from "@/tauri/yts";
 
 export interface PlayRequest {
@@ -44,6 +48,15 @@ const OFFSET_STEP = 0.5;
 const HIDE_CONTROLS_MS = 3000;
 const SAVE_EVERY_MS = 5000;
 const NEXT_COUNTDOWN = 10;
+/** Virtual track: the best English subtitle, translated to PT on the Mac. */
+export const TRANSLATED_ID = "tr-por";
+/** Start once the first batch is in (≈ the first 1-2 minutes of film)… */
+const LEAD_CUES = 25;
+/** …or this much film is covered from the start point. */
+const LEAD_SECONDS = 120;
+/** Never hold the film longer than this waiting for subtitles. */
+const MAX_WAIT_MS = 120_000;
+const TRANSLATE_POLL_MS = 2000;
 
 /**
  * WKWebView ships with the HTML Fullscreen API disabled, so the <video>
@@ -122,6 +135,10 @@ export function Player({
 	const [idle, setIdle] = useState(false);
 	const [resumedAt, setResumedAt] = useState(0);
 	const [countdown, setCountdown] = useState<number | null>(null);
+	const [translation, setTranslation] = useState<TranslationProgress | null>(null);
+	const [waitedOut, setWaitedOut] = useState(false);
+	const [skipWait, setSkipWait] = useState(false);
+	const [translateNote, setTranslateNote] = useState<string | null>(null);
 	// bumping this restarts the stream (used by "start over" on remuxed files)
 	const [restart, setRestart] = useState<{ key: string; n: number }>({ key: "", n: 0 });
 	/** where this stream starts: the resume point, or 0 after "start over" */
@@ -237,6 +254,9 @@ export function Player({
 		setVtt(null);
 		setCountdown(null);
 		setResumedAt(0);
+		setTranslation(null);
+		setWaitedOut(false);
+		setSkipWait(false);
 		trackRef.current = null;
 		streamPlay(request.magnet, request.hint, startAt)
 			.then(res => {
@@ -292,15 +312,30 @@ export function Player({
 		return () => clearInterval(id);
 	}, [info, persist]);
 
-	// subtitles: listed once the stream exists so the file hash can rank them
+	// subtitles: listed right away so a translation can run while the film buffers
 	useEffect(() => {
-		if (!info) return;
 		let cancelled = false;
+		setSubs(null);
+		setSubId("");
 		subtitlesList(request.imdbCode, request.season, request.episode)
 			.then(list => {
 				if (cancelled) return;
-				setSubs(list);
-				if (list[0]) setSubId(list[0].id);
+				const hasPt = list.some(t => t.lang === "por" || t.lang === "pob");
+				const english = list.find(t => t.lang === "eng");
+				const tracks =
+					!hasPt && english
+						? [
+								{
+									id: TRANSLATED_ID,
+									lang: "por",
+									label: "Português (traduzido do inglês)",
+									url: english.url,
+								},
+								...list,
+							]
+						: list;
+				setSubs(tracks);
+				if (tracks[0]) setSubId(tracks[0].id);
 			})
 			.catch(() => {
 				if (!cancelled) setSubs([]);
@@ -308,11 +343,61 @@ export function Player({
 		return () => {
 			cancelled = true;
 		};
-	}, [info, request.imdbCode, request.season, request.episode]);
+	}, [request.imdbCode, request.season, request.episode, request.key]);
 
-	// download the chosen subtitle
+	// on-device translation of the English track, from the start point onward
 	useEffect(() => {
-		if (!subs || !subId) return;
+		if (subId !== TRANSLATED_ID || !subs) return;
+		const source = subs.find(s => s.id === TRANSLATED_ID);
+		if (!source) return;
+		let cancelled = false;
+		let timer: ReturnType<typeof setTimeout> | null = null;
+		setTranslation(null);
+		setTranslateNote(null);
+		const fallBackToEnglish = (msg: string) => {
+			setTranslateNote(`Tradução indisponível — a usar inglês. ${msg}`);
+			const english = subs.find(s => s.lang === "eng");
+			setSubId(english?.id ?? "");
+		};
+		subtitleTranslateStart(source.url, startAt)
+			.then(jobId => {
+				const poll = () => {
+					subtitleTranslateProgress(jobId)
+						.then(p => {
+							if (cancelled || !p) return;
+							setTranslation(p);
+							if (p.done > 0) setVtt(p.vtt);
+							if (p.error) {
+								if (p.done === 0) fallBackToEnglish(p.error);
+								return;
+							}
+							if (!p.finished) timer = setTimeout(poll, TRANSLATE_POLL_MS);
+						})
+						.catch(() => {
+							if (!cancelled) timer = setTimeout(poll, TRANSLATE_POLL_MS);
+						});
+				};
+				if (!cancelled) poll();
+			})
+			.catch(e => {
+				if (!cancelled) fallBackToEnglish(errorText(e));
+			});
+		return () => {
+			cancelled = true;
+			if (timer) clearTimeout(timer);
+			void subtitleTranslateCancel();
+		};
+	}, [subId, subs, startAt]);
+
+	// don't hold the film forever waiting for subtitles
+	useEffect(() => {
+		const t = setTimeout(() => setWaitedOut(true), MAX_WAIT_MS);
+		return () => clearTimeout(t);
+	}, [request.key]);
+
+	// download the chosen subtitle (the translated one comes from its job)
+	useEffect(() => {
+		if (!subs || !subId || subId === TRANSLATED_ID) return;
 		const track = subs.find(s => s.id === subId);
 		if (!track) return;
 		let cancelled = false;
@@ -329,10 +414,10 @@ export function Player({
 		};
 	}, [subs, subId]);
 
-	// a new subtitle starts in sync
+	// a new subtitle starts in sync (translation updates keep the offset)
 	useEffect(() => {
-		setOffset(0);
-	}, [vtt]);
+		if (subId) setOffset(0);
+	}, [subId]);
 
 	// (re)build cues whenever the text or the sync offset changes; remuxed
 	// streams start at time_offset, so cues shift back by it
@@ -389,6 +474,35 @@ export function Player({
 	}, []);
 
 	const playsHere = info?.in_app && info.play_url && !videoError;
+
+	// Hold playback until the subtitle is ready: a translation needs its first
+	// batch (≈ the first minutes); meanwhile the film keeps buffering.
+	const translationLead =
+		translation !== null &&
+		(translation.finished ||
+			translation.error !== null ||
+			translation.done >= Math.min(LEAD_CUES, translation.total) ||
+			translation.ready_until >= startAt + LEAD_SECONDS);
+	const subtitlesReady =
+		subs !== null &&
+		(subs.length === 0 ||
+			subId === "" ||
+			(subId === TRANSLATED_ID ? translationLead : vtt !== null || subError !== null));
+	const gateOpen = !!playsHere && (subtitlesReady || waitedOut || skipWait);
+	const gateOpenRef = useRef(false);
+	useEffect(() => {
+		const v = videoRef.current;
+		if (gateOpen && !gateOpenRef.current && v) {
+			gateOpenRef.current = true;
+			try {
+				// jsdom (tests) returns undefined here
+				v.play()?.catch(() => {});
+			} catch {
+				// autoplay refused: the controls are there
+			}
+		}
+		if (!gateOpen) gateOpenRef.current = false;
+	}, [gateOpen]);
 	const pct =
 		status && status.total_bytes > 0 ? (status.progress_bytes / status.total_bytes) * 100 : 0;
 
@@ -442,6 +556,15 @@ export function Player({
 						))}
 					</select>
 				)}
+				{subId === TRANSLATED_ID &&
+					translation &&
+					!translation.finished &&
+					!translation.error &&
+					gateOpen && (
+						<span className="text-xs text-white/60">
+							tradução {translation.done}/{translation.total}
+						</span>
+					)}
 				{subs && subs.length === 0 && (
 					<span className="text-white/60">No subtitles found — drop a .srt</span>
 				)}
@@ -479,6 +602,7 @@ export function Player({
 				</Button>
 			</div>
 			{subError && <p className="px-3 text-xs text-red-400">{subError}</p>}
+			{translateNote && <p className="px-3 text-xs text-amber-300">{translateNote}</p>}
 
 			<div className="relative flex min-h-0 flex-1 items-center justify-center">
 				{error && <p className="max-w-lg p-6 text-center text-red-400">{error}</p>}
@@ -497,9 +621,10 @@ export function Player({
 					<video
 						ref={videoRef}
 						src={info.play_url ?? undefined}
-						controls
-						autoPlay
+						controls={gateOpen}
+						preload="auto"
 						className="h-full w-full"
+						style={gateOpen ? undefined : { visibility: "hidden" }}
 						onDoubleClick={e => {
 							e.preventDefault();
 							toggleFullscreen();
@@ -508,6 +633,39 @@ export function Player({
 						onLoadedMetadata={onLoadedMetadata}
 						onEnded={onEnded}
 					/>
+				)}
+				{info && playsHere && !gateOpen && (
+					<div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-center">
+						<p className="text-lg">A preparar o filme com legenda em português…</p>
+						<ul className="flex flex-col gap-1 text-sm text-white/80">
+							<li>
+								✓ Vídeo pronto
+								{status && ` · ${mb(status.progress_bytes)} em cache · ${status.peers} peers`}
+							</li>
+							<li>
+								{subId === TRANSLATED_ID
+									? translation
+										? `⏳ A traduzir a legenda: ${Math.min(translation.done, LEAD_CUES)}/${Math.min(LEAD_CUES, translation.total)} falas`
+										: "⏳ A traduzir a legenda…"
+									: subs === null
+										? "⏳ A procurar legendas…"
+										: "⏳ A descarregar a legenda…"}
+							</li>
+						</ul>
+						{subId === TRANSLATED_ID && translation && (
+							<div className="h-1 w-64 overflow-hidden rounded bg-white/20">
+								<div
+									className="h-full bg-white transition-all"
+									style={{
+										width: `${Math.min(100, (translation.done / Math.max(1, Math.min(LEAD_CUES, translation.total))) * 100)}%`,
+									}}
+								/>
+							</div>
+						)}
+						<Button size="sm" variant="secondary" onClick={() => setSkipWait(true)}>
+							Começar já
+						</Button>
+					</div>
 				)}
 				{info && !playsHere && (
 					<div className="flex max-w-lg flex-col items-center gap-3 p-6 text-center">

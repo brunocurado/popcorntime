@@ -392,3 +392,28 @@ export function parseVtt(vtt: string): Cue[] {
 	}
 	return cues;
 }
+
+export interface TranslationProgress {
+	done: number;
+	total: number;
+	/** film position (s) covered from the start point without a gap */
+	ready_until: number;
+	vtt: string;
+	finished: boolean;
+	error: string | null;
+}
+
+/** Translate an English subtitle to Portuguese on the Mac; returns a job id. */
+export async function subtitleTranslateStart(url: string, startAt?: number): Promise<number> {
+	return (await invoke("subtitle_translate_start", { url, startAt: startAt ?? null })) as number;
+}
+
+export async function subtitleTranslateProgress(
+	jobId: number
+): Promise<TranslationProgress | null> {
+	return (await invoke("subtitle_translate_progress", { jobId })) as TranslationProgress | null;
+}
+
+export async function subtitleTranslateCancel(): Promise<void> {
+	await invoke("subtitle_translate_cancel");
+}
