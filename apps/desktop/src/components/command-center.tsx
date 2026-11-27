@@ -110,7 +110,7 @@ function CommandCenterCommand({ command }: { command: Command }) {
 					key={command.id}
 					value={command.id}
 					onSelect={() => {
-						handleNavigation(`/browse`);
+						handleNavigation("/movies");
 					}}
 				>
 					<TrendingUp />
@@ -124,7 +124,7 @@ function CommandCenterCommand({ command }: { command: Command }) {
 					key={command.id}
 					value={command.id}
 					onSelect={() => {
-						handleNavigation(`/browse?kind=MOVIE`);
+						handleNavigation("/movies");
 					}}
 				>
 					<Film />
@@ -138,7 +138,7 @@ function CommandCenterCommand({ command }: { command: Command }) {
 					key={command.id}
 					value={command.id}
 					onSelect={() => {
-						handleNavigation(`/browse?kind=TV_SHOW`);
+						handleNavigation("/series");
 					}}
 				>
 					<Tv />

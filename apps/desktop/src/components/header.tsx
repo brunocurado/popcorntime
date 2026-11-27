@@ -4,123 +4,44 @@ import {
 	MenubarContent,
 	MenubarItem,
 	MenubarMenu,
-	MenubarSeparator,
 	MenubarTrigger,
 } from "@popcorntime/ui/components/menubar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@popcorntime/ui/components/tooltip";
 import { cn } from "@popcorntime/ui/lib/utils";
-
-import {
-	CircleUserIcon,
-	Clapperboard,
-	Cog,
-	Film,
-	Globe,
-	Headphones,
-	LogOut,
-	StarsIcon,
-	Tv,
-} from "lucide-react";
-import { useCallback, useMemo } from "react";
+import { CircleUserIcon, Cog, Film, Tv } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { Link, useLocation, useSearchParams } from "react-router";
-import { CommandCenter } from "@/components/command-center";
-import { useTauri } from "@/hooks/useTauri";
+import { Link, useLocation } from "react-router";
 import { useGlobalStore } from "@/stores/global";
-import type { MediaKind } from "@/tauri/types";
 
+/**
+ * Two tabs: Filmes (YTS + extra sources) and Séries (Cinemeta). The original
+ * Popcorn Time tabs, region/provider preferences and sign-out lived on the
+ * popcorntime.app account API, which answers "Unauthorized" to guests — so
+ * they never loaded or saved and are gone.
+ */
 export function Header() {
-	const haveFavorites = useGlobalStore(state => state.providers.haveFavorites);
-	const preferFavorites = useGlobalStore(state => state.browse.preferFavorites);
-	const togglePreferFavorites = useGlobalStore(state => state.togglePreferFavorites);
-	const togglePreferences = useGlobalStore(state => state.togglePreferences);
 	const toggleSettings = useGlobalStore(state => state.toggleSettings);
-	const toggleWatchPreferences = useGlobalStore(state => state.toggleWatchPreferences);
-	const sessionCleared = useGlobalStore(state => state.sessionCleared);
 	const direction = useGlobalStore(state => state.i18n.direction);
-	const { api } = useTauri();
-
 	const { t } = useTranslation();
-	const [searchParams] = useSearchParams();
 	const { pathname } = useLocation();
-	const onYtsMovies = pathname === "/movies";
+	const onMovies = pathname === "/movies";
 	const onSeries = pathname === "/series";
-	const onBrowse = pathname.startsWith("/browse");
-	const kind = useMemo(() => {
-		return (searchParams.get("kind") || "MOVIE") as MediaKind;
-	}, [searchParams]);
-
-	const logout = useCallback(() => {
-		api.logout().then(sessionCleared);
-	}, [api.logout, sessionCleared]);
 
 	return (
 		<header className="border-border bg-background/95 supports-[backdrop-filter]:bg-background/90 fixed top-0 z-50 h-14 w-full overscroll-none border-b backdrop-blur select-none">
 			<div className="macos:ml-20 mr-4 ml-4 flex h-full items-center">
 				<div className="mx-auto grid w-full grid-cols-[auto_1fr_auto] items-center gap-2">
-					<div className="z-[200] flex items-center gap-1">
-						{/**
-						 * Disabled for now, as it adds complexity
-						 * <SidebarTrigger className={cn(kind === 'tv_show' && 'invisible')} />
-						 */}
-
-						{haveFavorites && (
-							<Tooltip>
-								<TooltipTrigger asChild>
-									<Button
-										data-sidebar="trigger"
-										data-slot="sidebar-trigger"
-										variant="link"
-										className={cn(
-											"text-muted-foreground hover:bg-muted hover:text-muted-foreground p-2",
-											preferFavorites && "text-accent-foreground hover:text-accent-foreground"
-										)}
-										onClick={togglePreferFavorites}
-									>
-										<StarsIcon />
-										<span className="sr-only">Toggle Favorites</span>
-									</Button>
-								</TooltipTrigger>
-								<TooltipContent side="bottom" className="flex items-center gap-2 py-1 text-xs ">
-									<Clapperboard className="h-3 w-3" />
-									<span>For You feed</span>
-								</TooltipContent>
-							</Tooltip>
-						)}
-					</div>
+					<div className="z-[200] flex items-center gap-1" />
 					<nav className="z-[50] flex gap-4 justify-self-center rtl:space-x-reverse">
 						<Link
 							className={cn(
 								buttonVariants({ variant: "link" }),
-								onBrowse && kind === "MOVIE" && "text-accent-foreground bg-accent",
-								"flex gap-2"
-							)}
-							to={`/browse?kind=MOVIE`}
-						>
-							<Film className="h-4 w-4" />
-							<span>{t("browse.movies")}</span>
-						</Link>
-						<Link
-							className={cn(
-								buttonVariants({ variant: "link" }),
-								onBrowse && kind === "TV_SHOW" && "text-accent-foreground bg-accent",
-								"flex gap-2"
-							)}
-							to={`/browse/?kind=TV_SHOW`}
-						>
-							<Tv className="h-4 w-4" />
-							<span>{t("browse.tv-shows")}</span>
-						</Link>
-						<Link
-							className={cn(
-								buttonVariants({ variant: "link" }),
-								onYtsMovies && "text-accent-foreground bg-accent",
+								onMovies && "text-accent-foreground bg-accent",
 								"flex gap-2"
 							)}
 							to="/movies"
 						>
 							<Film className="h-4 w-4" />
-							<span>YTS</span>
+							<span>Filmes</span>
 						</Link>
 						<Link
 							className={cn(
@@ -133,29 +54,14 @@ export function Header() {
 							<Tv className="h-4 w-4" />
 							<span>Séries</span>
 						</Link>
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<div>
-									<Button variant="link" disabled className="flex gap-2">
-										<Headphones className="h-4 w-4" />
-										<span>{t("browse.podcasts")}</span>
-									</Button>
-								</div>
-							</TooltipTrigger>
-							<TooltipContent className="text-xs" side="bottom">
-								{t("header.soon")}
-							</TooltipContent>
-						</Tooltip>
 					</nav>
 
 					<div className="flex items-center gap-1 justify-self-end">
-						<CommandCenter />
-
 						<Menubar className="z-[200]">
 							<MenubarMenu>
 								<MenubarTrigger asChild>
 									<Button
-										title={t("preferences.preferences")}
+										title={t("menu.settings")}
 										variant="link"
 										size="icon"
 										className="text-muted-foreground hover:bg-muted"
@@ -165,22 +71,9 @@ export function Header() {
 								</MenubarTrigger>
 
 								<MenubarContent align={direction === "ltr" ? "end" : "start"} className="z-[400]">
-									<MenubarItem onClick={togglePreferences} className="flex gap-2">
-										<Globe className="size-4 shrink-0" />
-										<span>{t("menu.preferences")}</span>
-									</MenubarItem>
-									<MenubarItem onClick={toggleWatchPreferences} className="flex gap-2">
-										<Clapperboard className="size-4 shrink-0" />
-										<span>{t("menu.watchPreferences")}</span>
-									</MenubarItem>
-									<MenubarSeparator />
 									<MenubarItem onClick={toggleSettings} className="flex gap-2">
 										<Cog className="size-4 shrink-0" />
 										<span>{t("menu.settings")}</span>
-									</MenubarItem>
-									<MenubarItem onClick={logout} className="flex gap-2">
-										<LogOut className="size-4 shrink-0" />
-										<span>{t("menu.signOut")}</span>
 									</MenubarItem>
 								</MenubarContent>
 							</MenubarMenu>

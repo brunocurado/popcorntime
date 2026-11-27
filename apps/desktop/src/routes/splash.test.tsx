@@ -9,9 +9,9 @@ function LocationProbe() {
 	return <div data-testid="loc">{pathname}</div>;
 }
 
-function renderWithRouter(initialPath = "/") {
+function renderWithRouter() {
 	return render(
-		<MemoryRouter initialEntries={[initialPath]}>
+		<MemoryRouter initialEntries={["/"]}>
 			<Routes>
 				<Route
 					path="/"
@@ -21,9 +21,7 @@ function renderWithRouter(initialPath = "/") {
 						</div>
 					}
 				/>
-				<Route path="/onboarding" element={<div data-testid="onboarding" />} />
-				<Route path="/login" element={<div data-testid="login" />} />
-				<Route path="/browse" element={<div data-testid="browse" />} />
+				<Route path="/movies" element={<div data-testid="movies" />} />
 			</Routes>
 			<LocationProbe />
 		</MemoryRouter>
@@ -35,110 +33,34 @@ afterEach(() => {
 });
 
 describe("SplashRoute", () => {
-	it("shows Splash while boot is not initialized", async () => {
+	it("shows the splash while the app is still cold", async () => {
 		useGlobalStore.setState(s => {
 			s.app.boot = "cold";
-			s.settings.onboardingComplete = false;
-			s.session.isActive = false;
 		});
-
-		const r = renderWithRouter("/");
+		const r = renderWithRouter();
 		await act(async () => {});
-
 		expect(screen.getByTestId("splash")).toBeInTheDocument();
 		expect(screen.getByTestId("loc")).toHaveTextContent("/");
-
 		r.unmount();
 	});
 
-	it("redirects to onboarding when not onboarded", async () => {
-		useGlobalStore.setState(s => {
-			s.app.boot = "booted";
-			s.settings.onboardingComplete = false;
-		});
-
-		const r = renderWithRouter("/");
-		await act(async () => {});
-
-		expect(screen.getByTestId("onboarding")).toBeInTheDocument();
-		expect(screen.getByTestId("loc")).toHaveTextContent("/onboarding");
-
-		r.unmount();
-	});
-
-	it("redirects to login when onboarded but session is not active", async () => {
-		useGlobalStore.setState(s => {
-			s.app.boot = "booted";
-			s.session.status = "ready";
-			s.settings.onboardingComplete = true;
-		});
-
-		const r = renderWithRouter("/");
-		await act(async () => {});
-
-		expect(screen.getByTestId("login")).toBeInTheDocument();
-		expect(screen.getByTestId("loc")).toHaveTextContent("/login");
-
-		r.unmount();
-	});
-
-	it("shows splash when active but app not initialized", async () => {
-		useGlobalStore.setState(s => {
-			s.app.boot = "booting";
-			s.settings.onboardingComplete = true;
-			s.session.isActive = true;
-			// missing providers
-		});
-
-		const r = renderWithRouter("/");
-		await act(async () => {});
-
-		expect(screen.getByTestId("splash")).toBeInTheDocument();
-		expect(screen.getByTestId("loc")).toHaveTextContent("/");
-
-		r.unmount();
-	});
-
-	it("redirects to browser when active and app initialized", async () => {
-		useGlobalStore.setState(s => {
-			s.app.boot = "booted";
-			// prevent onboarding
-			s.settings.onboardingComplete = true;
-			// prevent login
-			s.session.isActive = true;
-			s.preferences.country = "CA";
-		});
-
-		const r = renderWithRouter("/");
-		await act(async () => {});
-
-		expect(screen.getByTestId("browse")).toBeInTheDocument();
-		expect(screen.getByTestId("loc")).toHaveTextContent("/browse");
-		r.unmount();
-	});
-
-	it("reacts when app initialization flips", async () => {
-		useGlobalStore.setState(s => {
-			s.app.boot = "cold";
-			s.settings.onboardingComplete = true;
-		});
-
-		const r = renderWithRouter("/");
-		await act(async () => {});
-
-		expect(screen.getByTestId("splash")).toBeInTheDocument();
-
-		await act(async () =>
+	it("goes straight to Filmes — no onboarding, login or region questions", async () => {
+		for (const state of [
+			{ onboarded: false, active: false },
+			{ onboarded: true, active: false },
+			{ onboarded: true, active: true },
+		]) {
 			useGlobalStore.setState(s => {
-				s.app.boot = "booted";
-				s.session.isActive = true;
-				s.preferences.country = "FR";
-			})
-		);
-
-		expect(screen.getByTestId("browse")).toBeInTheDocument();
-		expect(screen.getByTestId("loc")).toHaveTextContent("/browse");
-
-		r.unmount();
+				s.app.boot = "booting";
+				s.settings.onboardingComplete = state.onboarded;
+				s.session.isActive = state.active;
+				s.session.status = "ready";
+			});
+			const r = renderWithRouter();
+			await act(async () => {});
+			expect(screen.getByTestId("loc")).toHaveTextContent("/movies");
+			r.unmount();
+			resetGlobalStore();
+		}
 	});
 });

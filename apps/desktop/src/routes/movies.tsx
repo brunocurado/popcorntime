@@ -591,7 +591,7 @@ export function MoviesRoute() {
 	return (
 		<div className="flex flex-col gap-4 p-4">
 			<div className="flex flex-wrap items-center gap-2">
-				<h1 className="mr-auto text-2xl font-semibold">YTS Movies</h1>
+				<h1 className="mr-auto text-2xl font-semibold">Filmes</h1>
 				<span className="text-muted-foreground text-sm">
 					{movieCount > 0
 						? `${movies.length.toLocaleString()} / ${movieCount.toLocaleString()} movies`
