@@ -122,19 +122,32 @@ pub async fn subtitles_list(
     None => None,
   };
   let ep = season.zip(episode);
-  let addon = popcorntime_stream::subtitles::list_for(&imdb_code, ep, video.clone())
-    .await
-    .unwrap_or_else(|e| {
-      tracing::warn!("subtitle addon failed: {e:#}");
-      Vec::new()
-    });
+  // Free sources together: the Stremio addon, plus yts-subs.com for movies.
+  let addon_fut = popcorntime_stream::subtitles::list_for(&imdb_code, ep, video.clone());
+  let ytssubs_fut = async {
+    if ep.is_some() {
+      return Ok(Vec::new()); // yts-subs has no series
+    }
+    popcorntime_stream::ytssubs::list(&imdb_code, PREFERRED_LANGS).await
+  };
+  let (addon, ytssubs) = tokio::join!(addon_fut, ytssubs_fut);
+  let addon = addon.unwrap_or_else(|e| {
+    tracing::warn!("subtitle addon failed: {e:#}");
+    Vec::new()
+  });
+  let ytssubs = ytssubs.unwrap_or_else(|e| {
+    tracing::warn!("yts-subs failed: {e:#}");
+    Vec::new()
+  });
+  let addon = merge_by_language(addon, ytssubs);
   let has_pt = addon.iter().any(|t| t.lang == "por" || t.lang == "pob");
   if has_pt {
     return Ok(addon);
   }
   // No Portuguese from the free addon: ask OpenSubtitles.com, if configured.
+  // English too when the free sources have none: it's the next best choice.
   let mut languages = vec!["pt-pt".to_string(), "pt-br".to_string()];
-  if addon.is_empty() {
+  if !addon.iter().any(|t| t.lang == "eng") {
     languages.push("en".to_string());
   }
   let query = Query {
@@ -144,10 +157,7 @@ pub async fn subtitles_list(
     languages,
   };
   match state.opensubs.search(&query, PREFERRED_LANGS).await {
-    Ok(Some(mut official)) => {
-      official.extend(addon);
-      Ok(official)
-    }
+    Ok(Some(official)) => Ok(merge_by_language(official, addon)),
     Ok(None) => Ok(addon),
     Err(e) => {
       tracing::warn!("opensubtitles.com fallback failed: {e:#}");
@@ -163,6 +173,9 @@ pub async fn subtitles_list(
 pub async fn subtitle_vtt(state: State<'_, StreamState>, url: String) -> Result<String, Error> {
   if url.starts_with(TRACK_SCHEME) {
     return Ok(state.opensubs.fetch_vtt(&url).await?);
+  }
+  if url.starts_with(popcorntime_stream::ytssubs::TRACK_SCHEME) {
+    return Ok(popcorntime_stream::ytssubs::fetch_vtt(&url).await?);
   }
   Ok(popcorntime_stream::subtitles::fetch_vtt(&url).await?)
 }
@@ -283,4 +296,46 @@ pub async fn trailer_url(
     Ok(format!("http://127.0.0.1:{port}/trailer/{youtube_id}"))
   };
   run.await.map_err(Into::into)
+}
+
+/// Group tracks by preferred language (PT-PT, PT-BR, EN…), keeping each
+/// list's own order inside a language: `first` before `second`.
+pub fn merge_by_language(
+  first: Vec<SubtitleTrack>,
+  second: Vec<SubtitleTrack>,
+) -> Vec<SubtitleTrack> {
+  let rank = |l: &str| PREFERRED_LANGS.iter().position(|p| *p == l).unwrap_or(99);
+  let mut all: Vec<(usize, usize, SubtitleTrack)> = first
+    .into_iter()
+    .chain(second)
+    .enumerate()
+    .map(|(i, t)| (rank(&t.lang), i, t))
+    .collect();
+  all.sort_by_key(|(r, i, _)| (*r, *i));
+  all.into_iter().map(|(_, _, t)| t).collect()
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn t(id: &str, lang: &str) -> SubtitleTrack {
+    SubtitleTrack {
+      id: id.into(),
+      lang: lang.into(),
+      label: id.into(),
+      url: format!("https://x/{id}"),
+    }
+  }
+
+  #[test]
+  fn merges_sources_by_language_keeping_order() {
+    let addon = vec![t("a-pob", "pob"), t("a-eng", "eng")];
+    let ys = vec![t("y-por", "por"), t("y-pob", "pob"), t("y-eng", "eng")];
+    let ids: Vec<_> = merge_by_language(addon, ys)
+      .into_iter()
+      .map(|t| t.id)
+      .collect();
+    assert_eq!(ids, ["y-por", "a-pob", "y-pob", "a-eng", "y-eng"]);
+  }
 }
