@@ -1,7 +1,7 @@
 //! Live smoke test: `cargo run -p popcorntime-stream --example smoke -- <magnet> <imdb>`
 //! Streams the main video, proves Range reads + ffprobe work, then lists
 //! subtitles matched by the OpenSubtitles hash and drops everything.
-use popcorntime_stream::{StreamEngine, subtitles};
+use popcorntime_stream::{FileHint, StreamEngine, subtitles};
 use std::time::{Duration, Instant};
 
 #[tokio::main]
@@ -12,7 +12,16 @@ async fn main() -> anyhow::Result<()> {
   let dir = std::env::temp_dir().join("popcorn-smoke");
   let engine = StreamEngine::start(dir.clone()).await?;
   let t0 = Instant::now();
-  let info = engine.play(&magnet).await?;
+  let env_u32 = |k: &str| std::env::var(k).ok().and_then(|v| v.parse().ok());
+  let hint = FileHint {
+    season: env_u32("SMOKE_SEASON"),
+    episode: env_u32("SMOKE_EPISODE"),
+    ..Default::default()
+  };
+  let start_at = std::env::var("SMOKE_START")
+    .ok()
+    .and_then(|v| v.parse().ok());
+  let info = engine.play(&magnet, &hint, start_at).await?;
   println!("PLAY {:?} after {:?}", info, t0.elapsed());
   // first bytes + a seek near the end, like a player does
   let c = reqwest::Client::new();
@@ -57,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
     );
   }
   println!("URL {}", info.url);
+  println!("PLAY_URL {}", info.play_url.clone().unwrap_or_default());
   if let Ok(wait) = std::env::var("SMOKE_HOLD") {
     // keep serving so an external player (ffprobe) can hit the URL
     tokio::time::sleep(Duration::from_secs(wait.parse().unwrap_or(30))).await;

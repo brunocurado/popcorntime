@@ -71,8 +71,53 @@ pub async fn yts_magnet_url(hash: String, name: String) -> Result<String, Error>
 #[tauri::command(async)]
 #[specta::specta]
 #[instrument(err(Debug))]
-pub async fn extra_sources(imdb_code: String) -> Result<Vec<ExtraTorrent>, Error> {
-  popcorntime_yts_client::extra_sources(&imdb_code)
+pub async fn extra_sources(
+  imdb_code: String,
+  title: Option<String>,
+  year: Option<u32>,
+) -> Result<Vec<ExtraTorrent>, Error> {
+  popcorntime_yts_client::extra_sources(&imdb_code, title.as_deref(), year)
+    .await
+    .map_err(Into::into)
+}
+
+/// Torrents for one episode (Torrentio with pack file hints + KAT).
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(err(Debug))]
+pub async fn episode_sources(
+  imdb_code: String,
+  show: String,
+  season: u32,
+  episode: u32,
+) -> Result<Vec<ExtraTorrent>, Error> {
+  popcorntime_yts_client::sources::episode_sources(&imdb_code, &show, season, episode)
+    .await
+    .map_err(Into::into)
+}
+
+/// Series listing from Cinemeta (popular, by genre, or search), 50 per page.
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(err(Debug))]
+pub async fn series_catalog(
+  genre: Option<String>,
+  search: Option<String>,
+  skip: u32,
+) -> Result<Vec<popcorntime_yts_client::cinemeta::SeriesSummary>, Error> {
+  popcorntime_yts_client::cinemeta::series_catalog(genre.as_deref(), search.as_deref(), skip)
+    .await
+    .map_err(Into::into)
+}
+
+/// One show with its seasons and episodes.
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(err(Debug))]
+pub async fn series_meta(
+  imdb_code: String,
+) -> Result<popcorntime_yts_client::cinemeta::SeriesDetail, Error> {
+  popcorntime_yts_client::cinemeta::series_meta(&imdb_code)
     .await
     .map_err(Into::into)
 }

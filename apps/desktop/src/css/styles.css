@@ -1,5 +1,15 @@
 /* biome-ignore-all lint/suspicious/noUnknownAtRules: tailwindcss apply */
 
+/*
+ * This file is imported before the UI package's Tailwind build, so its
+ * `@layer base/utilities` blocks would otherwise fix the layer order as
+ * base, utilities, properties… — and Tailwind's `properties` fallback layer
+ * (`* { --tw-translate-x: 0 }`, active in WebKit) would then beat every
+ * translate utility: dialogs lost their -50% centring. Declare Tailwind's
+ * real order first.
+ */
+@layer properties, theme, base, components, utilities;
+
 @layer base {
 	html {
 		@apply overflow-x-hidden overscroll-none;

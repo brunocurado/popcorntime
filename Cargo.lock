@@ -2405,6 +2405,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "http-range-header"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9171a2ea8a68358193d15dd5d70c1c10a2afc3e7e4c5bc92bc9f025cebd7359c"
+
+[[package]]
 name = "httparse"
 version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4695,6 +4701,7 @@ name = "popcorntime-stream"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "axum 0.8.9",
  "librqbit",
  "librqbit-dualstack-sockets",
  "reqwest 0.12.23",
@@ -4702,6 +4709,7 @@ dependencies = [
  "serde_json",
  "specta",
  "tokio",
+ "tower-http 0.6.11",
  "tracing",
  "url",
 ]
@@ -4757,6 +4765,7 @@ name = "popcorntime-yts-client"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "futures-util",
  "reqwest 0.12.23",
  "serde",
  "serde_json",
@@ -6945,6 +6954,7 @@ dependencies = [
  "mio",
  "parking_lot 0.12.3",
  "pin-project-lite",
+ "signal-hook-registry",
  "slab",
  "socket2 0.6.0",
  "tokio-macros",
@@ -7189,10 +7199,19 @@ checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
  "bitflags 2.13.2",
  "bytes",
+ "futures-core",
  "futures-util",
  "http",
  "http-body",
+ "http-body-util",
+ "http-range-header",
+ "httpdate",
+ "mime",
+ "mime_guess",
+ "percent-encoding",
  "pin-project-lite",
+ "tokio",
+ "tokio-util",
  "tower 0.5.2",
  "tower-layer",
  "tower-service",

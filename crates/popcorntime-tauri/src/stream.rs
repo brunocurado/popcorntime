@@ -5,7 +5,9 @@
 
 use crate::error::Error;
 use anyhow::Context;
-use popcorntime_stream::{subtitles::SubtitleTrack, StreamEngine, StreamInfo, StreamStatus};
+use popcorntime_stream::{
+  subtitles::SubtitleTrack, FileHint, StreamEngine, StreamInfo, StreamStatus,
+};
 use std::{path::PathBuf, sync::Arc};
 use tauri::{Manager, State};
 use tokio::sync::OnceCell;
@@ -14,6 +16,7 @@ use tracing::instrument;
 pub struct StreamState {
   dir: PathBuf,
   engine: OnceCell<Arc<StreamEngine>>,
+  trailer_port: OnceCell<u16>,
 }
 
 impl StreamState {
@@ -23,6 +26,7 @@ impl StreamState {
     Self {
       dir,
       engine: OnceCell::new(),
+      trailer_port: OnceCell::new(),
     }
   }
 
@@ -52,10 +56,16 @@ pub fn wipe_on_exit(app: &tauri::AppHandle) {
 pub async fn stream_play(
   state: State<'_, StreamState>,
   magnet: String,
+  hint: Option<FileHint>,
+  start_at: Option<f64>,
 ) -> Result<StreamInfo, Error> {
   let run = async {
     anyhow::ensure!(magnet.starts_with("magnet:?"), "not a magnet link");
-    state.engine().await?.play(&magnet).await
+    state
+      .engine()
+      .await?
+      .play(&magnet, &hint.unwrap_or_default(), start_at)
+      .await
   };
   run.await.map_err(Into::into)
 }
@@ -63,9 +73,12 @@ pub async fn stream_play(
 #[tauri::command(async)]
 #[specta::specta]
 #[instrument(skip(state), err(Debug))]
-pub async fn stream_stop(state: State<'_, StreamState>) -> Result<(), Error> {
+pub async fn stream_stop(
+  state: State<'_, StreamState>,
+  torrent_id: Option<u32>,
+) -> Result<(), Error> {
   if let Some(engine) = state.engine.get() {
-    engine.stop().await?;
+    engine.stop_if(torrent_id).await?;
   }
   Ok(())
 }
@@ -87,12 +100,15 @@ pub async fn stream_status(state: State<'_, StreamState>) -> Result<Option<Strea
 pub async fn subtitles_list(
   state: State<'_, StreamState>,
   imdb_code: String,
+  season: Option<u32>,
+  episode: Option<u32>,
 ) -> Result<Vec<SubtitleTrack>, Error> {
   let video = match state.engine.get() {
     Some(engine) => engine.current_osdb_hash().await.ok(),
     None => None,
   };
-  Ok(popcorntime_stream::subtitles::list(&imdb_code, video).await?)
+  let ep = season.zip(episode);
+  Ok(popcorntime_stream::subtitles::list_for(&imdb_code, ep, video).await?)
 }
 
 /// One subtitle as WebVTT text (the player turns it into a <track>).
@@ -156,6 +172,28 @@ pub async fn open_magnet(magnet: String) -> Result<(), Error> {
       .context("failed to run open")?;
     anyhow::ensure!(status.success(), "no app handles magnet links");
     Ok(())
+  };
+  run.await.map_err(Into::into)
+}
+
+/// Local page that embeds the YouTube trailer (see `popcorntime_stream::trailer`).
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(skip(state), err(Debug))]
+pub async fn trailer_url(
+  state: State<'_, StreamState>,
+  youtube_id: String,
+) -> Result<String, Error> {
+  let run = async {
+    anyhow::ensure!(
+      popcorntime_stream::trailer::valid_youtube_id(&youtube_id),
+      "invalid YouTube id"
+    );
+    let port = state
+      .trailer_port
+      .get_or_try_init(popcorntime_stream::trailer::serve)
+      .await?;
+    Ok(format!("http://127.0.0.1:{port}/trailer/{youtube_id}"))
   };
   run.await.map_err(Into::into)
 }

@@ -1,3 +1,4 @@
+pub mod cinemeta;
 pub mod client;
 pub mod consts;
 pub mod sources;

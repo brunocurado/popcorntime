@@ -57,17 +57,38 @@ fn client() -> Result<reqwest::Client> {
 /// List subtitles for an IMDb id; with `video` (hash, size) the addon ranks
 /// subtitles made for that exact file first.
 pub async fn list(imdb: &str, video: Option<(String, u64)>) -> Result<Vec<SubtitleTrack>> {
+  list_for(imdb, None, video).await
+}
+
+/// `episode` = (season, episode) for series; `None` for movies.
+pub fn subtitles_url(
+  imdb: &str,
+  episode: Option<(u32, u32)>,
+  video: Option<(String, u64)>,
+) -> String {
+  let id = match episode {
+    Some((s, e)) => format!("series/{imdb}:{s}:{e}"),
+    None => format!("movie/{imdb}"),
+  };
+  match video {
+    Some((hash, size)) => {
+      format!("{OPENSUBTITLES_ADDON}/subtitles/{id}/videoHash={hash}&videoSize={size}.json")
+    }
+    None => format!("{OPENSUBTITLES_ADDON}/subtitles/{id}.json"),
+  }
+}
+
+pub async fn list_for(
+  imdb: &str,
+  episode: Option<(u32, u32)>,
+  video: Option<(String, u64)>,
+) -> Result<Vec<SubtitleTrack>> {
   let imdb = imdb.trim();
   anyhow::ensure!(
     imdb.starts_with("tt") && imdb[2..].chars().all(|c| c.is_ascii_digit()) && imdb.len() > 2,
     "invalid IMDb id: {imdb}"
   );
-  let url = match video {
-    Some((hash, size)) => {
-      format!("{OPENSUBTITLES_ADDON}/subtitles/movie/{imdb}/videoHash={hash}&videoSize={size}.json")
-    }
-    None => format!("{OPENSUBTITLES_ADDON}/subtitles/movie/{imdb}.json"),
-  };
+  let url = subtitles_url(imdb, episode, video);
   let res: AddonResponse = client()?
     .get(&url)
     .send()
@@ -173,6 +194,18 @@ pub fn osdb_hash(size: u64, head: &[u8], tail: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn builds_movie_and_episode_urls() {
+    assert_eq!(
+      subtitles_url("tt1", None, None),
+      format!("{OPENSUBTITLES_ADDON}/subtitles/movie/tt1.json")
+    );
+    assert_eq!(
+      subtitles_url("tt1", Some((1, 2)), Some(("ab".into(), 9))),
+      format!("{OPENSUBTITLES_ADDON}/subtitles/series/tt1:1:2/videoHash=ab&videoSize=9.json")
+    );
+  }
 
   #[test]
   fn converts_srt_to_vtt() {

@@ -554,7 +554,7 @@ export function MoviesRoute() {
 					if (!open) setSelected(null);
 				}}
 			>
-				<DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-2xl">
+				<DialogContent className="max-h-[85vh] grid-cols-[minmax(0,1fr)] overflow-x-hidden overflow-y-auto sm:max-w-2xl">
 					{selected && (
 						<MovieDialog
 							key={selected.id}

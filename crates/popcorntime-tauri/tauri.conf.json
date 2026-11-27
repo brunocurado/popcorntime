@@ -18,7 +18,8 @@
         "media-src": "'self' https://get.popcorntime.app http://127.0.0.1:* blob:",
         "connect-src": "'self'",
         "script-src": "'self'",
-        "style-src": "'self' 'unsafe-inline'"
+        "style-src": "'self' 'unsafe-inline'",
+        "frame-src": "http://127.0.0.1:*"
       }
     }
   },
