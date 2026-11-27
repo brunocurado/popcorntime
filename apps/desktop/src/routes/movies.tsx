@@ -7,10 +7,21 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import useInfiniteScroll from "react-infinite-scroll-hook";
 import placeholderImg from "@/assets/placeholder.svg";
+import { ContinueRow, WatchlistButton, WatchlistRow } from "@/components/library-rows";
 import { Player, type PlayRequest } from "@/components/player";
+import { Trailer } from "@/components/trailer";
+import {
+	formatClock,
+	getProgress,
+	movieKey,
+	type ProgressEntry,
+	resumePosition,
+} from "@/lib/library";
+import { type Candidate, pickBest } from "@/lib/pick";
 import {
 	type ExtraTorrent,
 	extraSources,
+	type FileHint,
 	mergeYtsMovie,
 	openMagnet,
 	type YtsMovie,
@@ -85,7 +96,7 @@ function CoverImg({ movie }: { movie: YtsMovie }) {
 	);
 }
 
-type OnPlay = (magnet: string, title: string) => void;
+type OnPlay = (magnet: string, title: string, hint?: FileHint) => void;
 
 function TorrentRow({
 	torrent,
@@ -109,7 +120,17 @@ function TorrentRow({
 	);
 }
 
-function MagnetButtons({ hash, name, onPlay }: { hash: string; name: string; onPlay: OnPlay }) {
+function MagnetButtons({
+	hash,
+	name,
+	onPlay,
+	hint,
+}: {
+	hash: string;
+	name: string;
+	onPlay: OnPlay;
+	hint?: FileHint;
+}) {
 	const [copied, setCopied] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const copy = useCallback(async () => {
@@ -130,11 +151,11 @@ function MagnetButtons({ hash, name, onPlay }: { hash: string; name: string; onP
 	}, [hash, name]);
 	const play = useCallback(async () => {
 		try {
-			onPlay(await ytsMagnetUrl(hash, name), name);
+			onPlay(await ytsMagnetUrl(hash, name), name, hint);
 		} catch {
 			setError("Failed to build magnet link");
 		}
-	}, [hash, name, onPlay]);
+	}, [hash, name, onPlay, hint]);
 	return (
 		<span className="ml-auto flex flex-wrap items-center gap-2">
 			<Button size="sm" onClick={play}>
@@ -151,43 +172,28 @@ function MagnetButtons({ hash, name, onPlay }: { hash: string; name: string; onP
 	);
 }
 
-/** Torrentio (multi-indexer) + The Pirate Bay, deduped against the YTS list. */
-function ExtraSources({
-	imdbCode,
-	ytsHashes,
+/** Torrentio (multi-indexer) + The Pirate Bay + Kickass, deduped against the YTS list. */
+export function ExtraSources({
+	items,
+	failed,
+	knownHashes,
 	onPlay,
+	title = "Mais fontes (Torrentio · Pirate Bay · Kickass)",
 }: {
-	imdbCode: string;
-	ytsHashes: string[];
+	items: ExtraTorrent[] | null;
+	failed: boolean;
+	knownHashes: string[];
 	onPlay: OnPlay;
+	title?: string;
 }) {
-	const [items, setItems] = useState<ExtraTorrent[] | null>(null);
-	const [failed, setFailed] = useState(false);
 	const [showAll, setShowAll] = useState(false);
-
-	useEffect(() => {
-		let cancelled = false;
-		setItems(null);
-		setFailed(false);
-		extraSources(imdbCode)
-			.then(res => {
-				if (!cancelled) setItems(res ?? []);
-			})
-			.catch(() => {
-				if (!cancelled) setFailed(true);
-			});
-		return () => {
-			cancelled = true;
-		};
-	}, [imdbCode]);
-
-	const known = useMemo(() => new Set(ytsHashes.map(h => h.toLowerCase())), [ytsHashes]);
+	const known = useMemo(() => new Set(knownHashes.map(h => h.toLowerCase())), [knownHashes]);
 	const fresh = (items ?? []).filter(t => !known.has(t.hash));
 	const visible = showAll ? fresh : fresh.slice(0, 8);
 
 	return (
 		<div className="flex flex-col gap-2">
-			<span className="text-sm font-medium">More sources (Torrentio · The Pirate Bay)</span>
+			<span className="text-sm font-medium">{title}</span>
 			{items === null && !failed && (
 				<p className="text-muted-foreground text-sm">Searching other sources…</p>
 			)}
@@ -203,13 +209,18 @@ function ExtraSources({
 					className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm"
 				>
 					{t.quality && <Badge variant="secondary">{t.quality}</Badge>}
-					<span className="min-w-0 flex-1 truncate" title={t.title}>
-						{t.title}
+					<span className="min-w-0 flex-1 truncate" title={t.file_name ?? t.title}>
+						{t.file_name ?? t.title}
 					</span>
 					<span className="text-muted-foreground w-full text-xs">
 						{t.source} · {t.size || "?"} · {t.seeds} seeds
 					</span>
-					<MagnetButtons hash={t.hash} name={t.title} onPlay={onPlay} />
+					<MagnetButtons
+						hash={t.hash}
+						name={t.title}
+						onPlay={onPlay}
+						hint={{ file_idx: t.file_idx ?? null, file_name: t.file_name ?? null }}
+					/>
 				</div>
 			))}
 			{fresh.length > visible.length && (
@@ -221,8 +232,24 @@ function ExtraSources({
 	);
 }
 
+export function toCandidates(extra: ExtraTorrent[]): Candidate[] {
+	return extra.map(t => ({
+		hash: t.hash,
+		title: t.title,
+		quality: t.quality,
+		seeds: t.seeds,
+		size: t.size,
+		source: t.source,
+		fileIdx: t.file_idx,
+		fileName: t.file_name,
+	}));
+}
+
 function MovieDialog({ movie, onPlay }: { movie: YtsMovie; onPlay: (req: PlayRequest) => void }) {
 	const [details, setDetails] = useState<YtsMovie | null>(null);
+	const [extras, setExtras] = useState<ExtraTorrent[] | null>(null);
+	const [extrasFailed, setExtrasFailed] = useState(false);
+	const [autoError, setAutoError] = useState<string | null>(null);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -248,10 +275,78 @@ function MovieDialog({ movie, onPlay }: { movie: YtsMovie; onPlay: (req: PlayReq
 		shown.medium_screenshot_image3,
 	].filter(Boolean);
 	const topCast = (shown.cast ?? []).slice(0, 6);
+	const key = movieKey(shown.imdb_code);
+	const progress = getProgress(key);
+	const resumeAt = resumePosition(progress);
+	const displayTitle = shown.title_long || shown.title;
 	const playTorrent = useCallback<OnPlay>(
-		(magnet, title) => onPlay({ magnet, title, imdbCode: shown.imdb_code }),
-		[onPlay, shown.imdb_code]
+		(magnet, _title, hint) =>
+			onPlay({
+				key,
+				kind: "movie",
+				magnet,
+				hint,
+				title: displayTitle,
+				imdbCode: shown.imdb_code,
+				poster: shown.medium_cover_image || shown.small_cover_image,
+				startAt: resumeAt,
+			}),
+		[
+			onPlay,
+			key,
+			displayTitle,
+			shown.imdb_code,
+			shown.medium_cover_image,
+			shown.small_cover_image,
+			resumeAt,
+		]
 	);
+
+	// extra sources load once per movie; the auto-play uses them too
+	useEffect(() => {
+		if (!movie.imdb_code) return;
+		let cancelled = false;
+		setExtras(null);
+		setExtrasFailed(false);
+		extraSources(movie.imdb_code, movie.title, movie.year)
+			.then(res => {
+				if (!cancelled) setExtras(res ?? []);
+			})
+			.catch(() => {
+				if (!cancelled) setExtrasFailed(true);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [movie.imdb_code, movie.title, movie.year]);
+
+	const best = useMemo(() => {
+		const yts: Candidate[] = shown.torrents.map(t => ({
+			hash: t.hash,
+			title: `${shown.title} ${t.quality} ${t.type} x264`,
+			quality: t.quality,
+			seeds: t.seeds,
+			size: t.size,
+			source: "YTS",
+		}));
+		return pickBest([...yts, ...toCandidates(extras ?? [])]);
+	}, [shown.torrents, shown.title, extras]);
+
+	const playBest = useCallback(async () => {
+		if (!best) {
+			setAutoError("Ainda sem fontes com seeds — tenta daqui a pouco ou escolhe uma abaixo.");
+			return;
+		}
+		setAutoError(null);
+		try {
+			playTorrent(await ytsMagnetUrl(best.hash, best.title), best.title, {
+				file_idx: best.fileIdx ?? null,
+				file_name: best.fileName ?? null,
+			});
+		} catch {
+			setAutoError("Failed to build magnet link");
+		}
+	}, [best, playTorrent]);
 
 	return (
 		<>
@@ -277,6 +372,32 @@ function MovieDialog({ movie, onPlay }: { movie: YtsMovie; onPlay: (req: PlayReq
 						))}
 					</div>
 				</div>
+				<div className="flex flex-wrap items-center gap-2">
+					<Button onClick={() => void playBest()} disabled={!best && extras === null}>
+						{resumeAt > 0 ? `▶ Continuar (${formatClock(resumeAt)})` : "▶ Play"}
+					</Button>
+					{best && (
+						<span className="text-muted-foreground text-xs" title={best.title}>
+							melhor fonte: {best.quality || "?"} · {best.source} · {best.seeds} seeds ·{" "}
+							{best.size || "?"}
+						</span>
+					)}
+					<span className="ml-auto flex items-center gap-2">
+						{shown.imdb_code && (
+							<WatchlistButton
+								item={{
+									kind: "movie",
+									imdb: shown.imdb_code,
+									title: shown.title,
+									poster: shown.medium_cover_image || shown.small_cover_image,
+									year: String(shown.year),
+								}}
+							/>
+						)}
+						<Trailer youtubeId={shown.yt_trailer_code} />
+					</span>
+				</div>
+				{autoError && <p className="text-sm text-red-500">{autoError}</p>}
 				{plot && <p className="text-sm">{plot}</p>}
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
 					<span title="IMDb rating">⭐ {shown.rating}</span>
@@ -356,8 +477,9 @@ function MovieDialog({ movie, onPlay }: { movie: YtsMovie; onPlay: (req: PlayReq
 				</div>
 				{shown.imdb_code && (
 					<ExtraSources
-						imdbCode={shown.imdb_code}
-						ytsHashes={shown.torrents.map(t => t.hash)}
+						items={extras}
+						failed={extrasFailed}
+						knownHashes={shown.torrents.map(t => t.hash)}
 						onPlay={playTorrent}
 					/>
 				)}
@@ -376,7 +498,7 @@ export function MoviesRoute() {
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 	const [selected, setSelected] = useState<YtsMovie | null>(null);
-	const [playing, setPlaying] = useState<{ req: PlayRequest; movie: YtsMovie } | null>(null);
+	const [playing, setPlaying] = useState<{ req: PlayRequest; movie: YtsMovie | null } | null>(null);
 	// Filters actually applied to the accumulated list (set on Search).
 	const [applied, setApplied] = useState({
 		query: "",
@@ -426,6 +548,33 @@ export function MoviesRoute() {
 
 	const hasNextPage = movies.length < movieCount;
 
+	const resume = useCallback((p: ProgressEntry) => {
+		setPlaying({
+			movie: null,
+			req: {
+				key: p.key,
+				kind: "movie",
+				magnet: p.magnet,
+				hint: p.hint,
+				title: p.title,
+				imdbCode: p.imdb,
+				poster: p.poster,
+				startAt: resumePosition(p),
+			},
+		});
+	}, []);
+
+	const openSaved = useCallback(async (imdb: string) => {
+		try {
+			const res = await ytsListMovies({ limit: 1, queryTerm: imdb });
+			const found = res.data.movies?.[0];
+			if (found) setSelected(found);
+			else setError("Esse filme já não está no YTS.");
+		} catch (e) {
+			setError(e instanceof Error ? e.message : "Failed to load movie");
+		}
+	}, []);
+
 	const onLoadMore = useCallback(() => {
 		if (!isLoading && hasNextPage) {
 			void loadPage(page + 1, applied, true);
@@ -449,6 +598,9 @@ export function MoviesRoute() {
 						: "no account needed"}
 				</span>
 			</div>
+
+			<ContinueRow kind="movie" onResume={resume} />
+			<WatchlistRow kind="movie" onOpen={w => void openSaved(w.imdb)} />
 
 			<form
 				className="flex flex-wrap gap-2"
@@ -572,7 +724,7 @@ export function MoviesRoute() {
 					request={playing.req}
 					onClose={() => {
 						// back to the movie window the user came from
-						setSelected(playing.movie);
+						if (playing.movie) setSelected(playing.movie);
 						setPlaying(null);
 					}}
 				/>

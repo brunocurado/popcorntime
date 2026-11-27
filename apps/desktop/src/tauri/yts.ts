@@ -189,11 +189,85 @@ export interface ExtraTorrent {
 	quality: string;
 	seeds: number;
 	size: string;
+	file_idx?: number | null;
+	file_name?: string | null;
 }
 
-/** Torrentio (multi-indexer) + The Pirate Bay, by IMDb id. */
-export async function extraSources(imdbCode: string): Promise<ExtraTorrent[]> {
-	return (await invoke("extra_sources", { imdbCode })) as ExtraTorrent[];
+/** Torrentio (multi-indexer) + The Pirate Bay + KickassTorrents, by IMDb id. */
+export async function extraSources(
+	imdbCode: string,
+	title?: string,
+	year?: number
+): Promise<ExtraTorrent[]> {
+	return ((await invoke("extra_sources", {
+		imdbCode,
+		title: title ?? null,
+		year: year ?? null,
+	})) ?? []) as ExtraTorrent[];
+}
+
+/** Torrents for one episode (Torrentio with season-pack file hints + KAT). */
+export async function episodeSources(
+	imdbCode: string,
+	show: string,
+	season: number,
+	episode: number
+): Promise<ExtraTorrent[]> {
+	return ((await invoke("episode_sources", { imdbCode, show, season, episode })) ??
+		[]) as ExtraTorrent[];
+}
+
+export interface SeriesSummary {
+	id: string;
+	name: string;
+	poster: string;
+	year: string;
+	rating: string;
+}
+
+export interface Episode {
+	season: number;
+	episode: number;
+	title: string;
+	overview: string;
+	thumbnail: string;
+	released: string;
+}
+
+export interface SeriesDetail extends SeriesSummary {
+	background: string;
+	description: string;
+	runtime: string;
+	genres: string[];
+	trailer: string;
+	episodes: Episode[];
+}
+
+export async function seriesCatalog(
+	genre: string | undefined,
+	search: string | undefined,
+	skip: number
+): Promise<SeriesSummary[]> {
+	return ((await invoke("series_catalog", {
+		genre: genre || null,
+		search: search || null,
+		skip,
+	})) ?? []) as SeriesSummary[];
+}
+
+export async function seriesMeta(imdbCode: string): Promise<SeriesDetail> {
+	return (await invoke("series_meta", { imdbCode })) as SeriesDetail;
+}
+
+export async function trailerUrl(youtubeId: string): Promise<string> {
+	return (await invoke("trailer_url", { youtubeId })) as string;
+}
+
+export interface FileHint {
+	file_idx?: number | null;
+	file_name?: string | null;
+	season?: number | null;
+	episode?: number | null;
 }
 
 export interface StreamInfo {
@@ -201,8 +275,16 @@ export interface StreamInfo {
 	file_index: number;
 	file_name: string;
 	file_size: number;
+	/** raw file over HTTP (VLC, subtitle hashing) */
 	url: string;
+	/** what the in-app <video> loads (raw file or HLS remux) */
+	play_url: string | null;
 	in_app: boolean;
+	remuxed: boolean;
+	/** seconds skipped at the start of a remux (resume) */
+	time_offset: number;
+	/** film length in seconds when known, else 0 */
+	duration: number;
 }
 
 export interface StreamStatus {
@@ -220,20 +302,39 @@ export interface SubtitleTrack {
 	url: string;
 }
 
-export async function streamPlay(magnet: string): Promise<StreamInfo> {
-	return (await invoke("stream_play", { magnet })) as StreamInfo;
+export async function streamPlay(
+	magnet: string,
+	hint?: FileHint,
+	startAt?: number
+): Promise<StreamInfo> {
+	return (await invoke("stream_play", {
+		magnet,
+		hint: hint ?? null,
+		startAt: startAt && startAt > 0 ? startAt : null,
+	})) as StreamInfo;
 }
 
-export async function streamStop(): Promise<void> {
-	await invoke("stream_stop");
+/** Stop streaming; with an id, only if that torrent is still the current one. */
+export async function streamStop(torrentId?: number): Promise<void> {
+	await invoke("stream_stop", { torrentId: torrentId ?? null });
 }
 
 export async function streamStatus(): Promise<StreamStatus | null> {
 	return (await invoke("stream_status")) as StreamStatus | null;
 }
 
-export async function subtitlesList(imdbCode: string): Promise<SubtitleTrack[]> {
-	return ((await invoke("subtitles_list", { imdbCode })) as SubtitleTrack[]) ?? [];
+export async function subtitlesList(
+	imdbCode: string,
+	season?: number,
+	episode?: number
+): Promise<SubtitleTrack[]> {
+	return (
+		((await invoke("subtitles_list", {
+			imdbCode,
+			season: season ?? null,
+			episode: episode ?? null,
+		})) as SubtitleTrack[]) ?? []
+	);
 }
 
 export async function subtitleVtt(url: string): Promise<string> {

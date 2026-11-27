@@ -1,10 +1,17 @@
 import { clearMocks, mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Player } from "@/components/player";
+import { Player, type PlayRequest } from "@/components/player";
+import { getProgress, resetLibrary } from "@/lib/library";
 import { parseVtt, srtToVtt } from "@/tauri/yts";
 
-const REQ = { magnet: "magnet:?xt=urn:btih:abc", title: "The Matrix", imdbCode: "tt0133093" };
+const REQ: PlayRequest = {
+	key: "movie:tt0133093",
+	kind: "movie",
+	magnet: "magnet:?xt=urn:btih:abc",
+	title: "The Matrix",
+	imdbCode: "tt0133093",
+};
 const URL_MP4 = "http://127.0.0.1:5000/torrents/0/stream/3/The.Matrix.mp4";
 
 let calls: string[] = [];
@@ -19,7 +26,11 @@ function mockStream(inApp: boolean) {
 				file_name: inApp ? "The.Matrix.mp4" : "The.Matrix.mkv",
 				file_size: 1e9,
 				url: URL_MP4,
+				play_url: inApp ? URL_MP4 : null,
 				in_app: inApp,
+				remuxed: false,
+				time_offset: 0,
+				duration: 0,
 			};
 		}
 		if (cmd === "stream_status") return null;
@@ -40,6 +51,7 @@ function mockStream(inApp: boolean) {
 
 beforeEach(() => {
 	calls = [];
+	resetLibrary();
 });
 
 afterEach(() => {
@@ -83,6 +95,109 @@ describe("Player", () => {
 			fireEvent.click(buttons[buttons.length - 1] as HTMLElement);
 		});
 		expect(calls).toContain("open_in_vlc");
+		r.unmount();
+	});
+});
+
+describe("Player resume, progress and next episode", () => {
+	function mockRemux(playArgs: unknown[]) {
+		mockIPC((cmd, args) => {
+			calls.push(cmd);
+			if (cmd === "stream_play") {
+				playArgs.push(args);
+				return {
+					torrent_id: 4,
+					file_index: 1,
+					file_name: "Show.S01E02.mkv",
+					file_size: 1e9,
+					url: "http://127.0.0.1:5000/torrents/4/stream/1/Show.S01E02.mkv",
+					play_url: "http://127.0.0.1:5001/4/index.m3u8",
+					in_app: true,
+					remuxed: true,
+					time_offset: 754,
+					duration: 3000,
+				};
+			}
+			if (cmd === "subtitles_list") {
+				expect(args).toMatchObject({ imdbCode: "tt1", season: 1, episode: 2 });
+				return [];
+			}
+			return null;
+		});
+	}
+
+	const EP: PlayRequest = {
+		key: "ep:tt1:1:2",
+		kind: "episode",
+		magnet: "magnet:?xt=urn:btih:def",
+		title: "Show · S01E02",
+		imdbCode: "tt1",
+		showTitle: "Show",
+		season: 1,
+		episode: 2,
+		hint: { file_name: "Show.S01E02.mkv", season: 1, episode: 2 },
+		startAt: 754,
+	};
+
+	it("resumes a remuxed episode at the saved point, saves progress and stops only its torrent", async () => {
+		const playArgs: unknown[] = [];
+		mockRemux(playArgs);
+		const onClose = vi.fn();
+		const r = render(<Player request={EP} onClose={onClose} />);
+		await act(async () => {});
+		await act(async () => {});
+		expect(playArgs[0]).toMatchObject({
+			magnet: EP.magnet,
+			hint: { file_name: "Show.S01E02.mkv", season: 1, episode: 2 },
+			startAt: 754,
+		});
+		expect(document.querySelector("video")?.getAttribute("src")).toBe(
+			"http://127.0.0.1:5001/4/index.m3u8"
+		);
+		expect(screen.getByText("Retomado em 12:34")).toBeInTheDocument();
+		expect(screen.getByText("mkv → conversão ao vivo")).toBeInTheDocument();
+
+		// 20 s into the remux = 12:34 + 0:20 of the film
+		const video = document.querySelector("video") as HTMLVideoElement;
+		Object.defineProperty(video, "currentTime", { value: 20, configurable: true });
+		fireEvent.click(screen.getByText("✕ Close"));
+		expect(getProgress("ep:tt1:1:2")).toMatchObject({
+			position: 774,
+			duration: 3000,
+			season: 1,
+			episode: 2,
+		});
+		r.unmount();
+		await act(async () => {});
+		expect(calls).toContain("stream_stop");
+	});
+
+	it("counts down to the next episode when one ends", async () => {
+		mockRemux([]);
+		const start = vi.fn();
+		const r = render(
+			<Player
+				request={{ ...EP, startAt: 0 }}
+				onClose={() => {}}
+				next={{ label: "S01E03 · Next", start }}
+			/>
+		);
+		await act(async () => {});
+		await act(async () => {});
+		vi.useFakeTimers();
+		await act(async () => {
+			fireEvent(document.querySelector("video") as HTMLVideoElement, new Event("ended"));
+		});
+		expect(screen.getByText("S01E03 · Next")).toBeInTheDocument();
+		expect(screen.getByText("A seguir, em 10s")).toBeInTheDocument();
+		expect(getProgress("ep:tt1:1:2")?.position).toBe(3000); // marked as watched
+		for (let i = 0; i < 11; i++) {
+			await act(async () => {
+				vi.advanceTimersByTime(1000);
+			});
+		}
+		vi.useRealTimers();
+		expect(start).toHaveBeenCalledTimes(1);
 		r.unmount();
 	});
 });

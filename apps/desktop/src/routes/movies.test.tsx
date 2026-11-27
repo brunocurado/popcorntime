@@ -2,6 +2,7 @@ import { clearMocks, mockIPC } from "@tauri-apps/api/mocks";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetLibrary } from "@/lib/library";
 import { MoviesRoute } from "@/routes/movies";
 
 vi.mock("@tauri-apps/plugin-opener", () => ({
@@ -39,6 +40,7 @@ function renderMovies() {
 }
 
 afterEach(() => {
+	resetLibrary();
 	clearMocks();
 	vi.unstubAllGlobals();
 });
@@ -219,7 +221,7 @@ describe("MoviesRoute", () => {
 			fireEvent.click(poster);
 		});
 		expect(await screen.findByText("13.2010.1080p.BluRay")).toBeInTheDocument();
-		expect(screen.getByText(/Torrentio · 1337x/)).toBeInTheDocument();
+		expect(screen.getAllByText(/Torrentio · 1337x/).length).toBeGreaterThan(0);
 		expect(screen.queryByText("13 (2010) dup of YTS")).not.toBeInTheDocument();
 
 		r.unmount();
@@ -276,6 +278,102 @@ describe("MoviesRoute", () => {
 		});
 		// changing the sort keeps the genre
 		expect(seen.at(-1)).toMatchObject({ genre: "horror", sortBy: "rating" });
+		r.unmount();
+	});
+
+	it("Play picks the best source, and Ver depois adds the movie to the row", async () => {
+		const playArgs: unknown[] = [];
+		mockIPC((cmd, args) => {
+			if (cmd === "yts_list_movies") {
+				return {
+					status: "ok",
+					status_message: "ok",
+					data: {
+						movie_count: 1,
+						limit: 20,
+						page_number: 1,
+						movies: [
+							{
+								...MOVIES[0],
+								yt_trailer_code: "abcdefghijk",
+								torrents: [
+									{
+										hash: "1".repeat(40),
+										quality: "720p",
+										type: "web",
+										size: "700 MB",
+										seeds: 40,
+										peers: 2,
+									},
+									{
+										hash: "2".repeat(40),
+										quality: "1080p",
+										type: "bluray",
+										size: "1.4 GB",
+										seeds: 90,
+										peers: 9,
+									},
+								],
+							},
+						],
+					},
+				};
+			}
+			if (cmd === "yts_movie_details") return { status: "error", status_message: "x", data: {} };
+			if (cmd === "extra_sources") {
+				expect(args).toMatchObject({ imdbCode: "tt0798817", title: "13", year: 2010 });
+				return [
+					{
+						source: "Torrentio · RARBG",
+						title: "13.2010.HDCAM",
+						hash: "3".repeat(40),
+						quality: "",
+						seeds: 999,
+						size: "1 GB",
+					},
+				];
+			}
+			if (cmd === "yts_magnet_url") return `magnet:?xt=urn:btih:${(args as { hash: string }).hash}`;
+			if (cmd === "stream_play") {
+				playArgs.push(args);
+				return {
+					torrent_id: 0,
+					file_index: 0,
+					file_name: "13.mp4",
+					file_size: 1,
+					url: "http://127.0.0.1:1/x.mp4",
+					play_url: "http://127.0.0.1:1/x.mp4",
+					in_app: true,
+					remuxed: false,
+					time_offset: 0,
+					duration: 0,
+				};
+			}
+			if (cmd === "subtitles_list") return [];
+			return null;
+		});
+		const r = renderMovies();
+		const poster = await screen.findByAltText("13");
+		await act(async () => {
+			fireEvent.click(poster);
+		});
+		await act(async () => {});
+		expect(screen.getByText(/melhor fonte: 1080p · YTS · 90 seeds/)).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "🎬 Trailer" })).toBeInTheDocument();
+
+		await act(async () => {
+			fireEvent.click(screen.getByRole("button", { name: "+ Ver depois" }));
+		});
+		expect(screen.getByRole("button", { name: "✓ Na lista" })).toBeInTheDocument();
+		// the row sits behind the modal (aria-hidden while it is open)
+		expect(screen.getByRole("region", { name: "Ver depois", hidden: true })).toBeInTheDocument();
+
+		await act(async () => {
+			// the first ▶ Play is the auto-pick at the top of the window
+			fireEvent.click(screen.getAllByRole("button", { name: "▶ Play" })[0] as HTMLElement);
+		});
+		await act(async () => {});
+		expect(playArgs[0]).toMatchObject({ magnet: `magnet:?xt=urn:btih:${"2".repeat(40)}` });
 		r.unmount();
 	});
 });

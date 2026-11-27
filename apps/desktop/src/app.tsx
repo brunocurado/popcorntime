@@ -22,6 +22,7 @@ import {
 	OnboardingWelcomeRoute,
 } from "@/routes/onboarding";
 import { RequireSession } from "@/routes/require-session";
+import { SeriesRoute } from "@/routes/series";
 import { SplashRoute } from "@/routes/splash";
 
 import "@/css/styles.css";
@@ -74,6 +75,9 @@ export function App() {
 						</Route>
 						<Route path="/movies" element={<BrowseLayout />}>
 							<Route index element={<MoviesRoute />} />
+						</Route>
+						<Route path="/series" element={<BrowseLayout />}>
+							<Route index element={<SeriesRoute />} />
 						</Route>
 					</Route>
 				</Routes>

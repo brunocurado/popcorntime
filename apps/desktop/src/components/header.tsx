@@ -44,6 +44,7 @@ export function Header() {
 	const [searchParams] = useSearchParams();
 	const { pathname } = useLocation();
 	const onYtsMovies = pathname === "/movies";
+	const onSeries = pathname === "/series";
 	const kind = useMemo(() => {
 		return (searchParams.get("kind") || "MOVIE") as MediaKind;
 	}, [searchParams]);
@@ -119,6 +120,17 @@ export function Header() {
 						>
 							<Film className="h-4 w-4" />
 							<span>YTS</span>
+						</Link>
+						<Link
+							className={cn(
+								buttonVariants({ variant: "link" }),
+								onSeries && "text-accent-foreground bg-accent",
+								"flex gap-2"
+							)}
+							to="/series"
+						>
+							<Tv className="h-4 w-4" />
+							<span>Séries</span>
 						</Link>
 						<Tooltip>
 							<TooltipTrigger asChild>
