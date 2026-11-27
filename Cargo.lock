@@ -4702,6 +4702,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "axum 0.8.9",
+ "keyring",
  "librqbit",
  "librqbit-dualstack-sockets",
  "reqwest 0.12.23",

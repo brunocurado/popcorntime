@@ -24,6 +24,7 @@ import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { z } from "zod";
+import { OpenSubtitlesSettings } from "@/components/opensubtitles-settings";
 import { useTauri } from "@/hooks/useTauri";
 import { useUpdater } from "@/hooks/useUpdater";
 import { useGlobalStore } from "@/stores/global";
@@ -133,7 +134,8 @@ export function SettingsDialog() {
 								</div>
 							</div>
 						</div>
-						<DialogFooter>
+						<OpenSubtitlesSettings />
+						<DialogFooter className="pt-4">
 							<Button type="submit">{t("settings.update")}</Button>
 						</DialogFooter>
 					</form>

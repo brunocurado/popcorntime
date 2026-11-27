@@ -6,7 +6,12 @@
 use crate::error::Error;
 use anyhow::Context;
 use popcorntime_stream::{
-  subtitles::SubtitleTrack, FileHint, StreamEngine, StreamInfo, StreamStatus,
+  opensubtitles::{
+    Credentials, KeychainStore, MemoryStore, OpenSubtitles, OpenSubtitlesStatus, Query,
+    SecretStore, TRACK_SCHEME,
+  },
+  subtitles::{SubtitleTrack, PREFERRED_LANGS},
+  FileHint, StreamEngine, StreamInfo, StreamStatus,
 };
 use std::{path::PathBuf, sync::Arc};
 use tauri::{Manager, State};
@@ -17,16 +22,25 @@ pub struct StreamState {
   dir: PathBuf,
   engine: OnceCell<Arc<StreamEngine>>,
   trailer_port: OnceCell<u16>,
+  opensubs: OpenSubtitles,
 }
 
 impl StreamState {
   pub fn new(app_cache_dir: &std::path::Path) -> Self {
     let dir = app_cache_dir.join("stream");
     let _ = std::fs::remove_dir_all(&dir);
+    let store: Box<dyn SecretStore> = match KeychainStore::new() {
+      Ok(k) => Box::new(k),
+      Err(e) => {
+        tracing::warn!("keychain unavailable, OpenSubtitles credentials kept in memory: {e:#}");
+        Box::<MemoryStore>::default()
+      }
+    };
     Self {
       dir,
       engine: OnceCell::new(),
       trailer_port: OnceCell::new(),
+      opensubs: OpenSubtitles::new(store),
     }
   }
 
@@ -108,15 +122,88 @@ pub async fn subtitles_list(
     None => None,
   };
   let ep = season.zip(episode);
-  Ok(popcorntime_stream::subtitles::list_for(&imdb_code, ep, video).await?)
+  let addon = popcorntime_stream::subtitles::list_for(&imdb_code, ep, video.clone())
+    .await
+    .unwrap_or_else(|e| {
+      tracing::warn!("subtitle addon failed: {e:#}");
+      Vec::new()
+    });
+  let has_pt = addon.iter().any(|t| t.lang == "por" || t.lang == "pob");
+  if has_pt {
+    return Ok(addon);
+  }
+  // No Portuguese from the free addon: ask OpenSubtitles.com, if configured.
+  let mut languages = vec!["pt-pt".to_string(), "pt-br".to_string()];
+  if addon.is_empty() {
+    languages.push("en".to_string());
+  }
+  let query = Query {
+    imdb: imdb_code.clone(),
+    episode: ep,
+    moviehash: video.map(|(h, _)| h),
+    languages,
+  };
+  match state.opensubs.search(&query, PREFERRED_LANGS).await {
+    Ok(Some(mut official)) => {
+      official.extend(addon);
+      Ok(official)
+    }
+    Ok(None) => Ok(addon),
+    Err(e) => {
+      tracing::warn!("opensubtitles.com fallback failed: {e:#}");
+      Ok(addon)
+    }
+  }
 }
 
 /// One subtitle as WebVTT text (the player turns it into a <track>).
 #[tauri::command(async)]
 #[specta::specta]
-#[instrument(err(Debug))]
-pub async fn subtitle_vtt(url: String) -> Result<String, Error> {
+#[instrument(skip(state), err(Debug))]
+pub async fn subtitle_vtt(state: State<'_, StreamState>, url: String) -> Result<String, Error> {
+  if url.starts_with(TRACK_SCHEME) {
+    return Ok(state.opensubs.fetch_vtt(&url).await?);
+  }
   Ok(popcorntime_stream::subtitles::fetch_vtt(&url).await?)
+}
+
+/// OpenSubtitles.com fallback: is it configured, as whom, downloads left.
+#[tauri::command(async)]
+#[specta::specta]
+pub async fn opensubtitles_status(
+  state: State<'_, StreamState>,
+) -> Result<OpenSubtitlesStatus, Error> {
+  Ok(state.opensubs.status().await)
+}
+
+/// Check the credentials against OpenSubtitles.com and keep them in the
+/// Keychain. Nothing is stored if the check fails. Never logged.
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(skip_all, err(Debug))]
+pub async fn opensubtitles_save(
+  state: State<'_, StreamState>,
+  api_key: String,
+  username: Option<String>,
+  password: Option<String>,
+) -> Result<OpenSubtitlesStatus, Error> {
+  Ok(
+    state
+      .opensubs
+      .save(Credentials {
+        api_key,
+        username,
+        password,
+      })
+      .await?,
+  )
+}
+
+#[tauri::command(async)]
+#[specta::specta]
+#[instrument(skip(state), err(Debug))]
+pub async fn opensubtitles_clear(state: State<'_, StreamState>) -> Result<(), Error> {
+  Ok(state.opensubs.clear().await?)
 }
 
 /// Hand the current stream to VLC (for mkv/x265/DTS the WebView can't play),

@@ -9,6 +9,7 @@ publish = false
 librqbit = { version = "9.1.0", default-features = false, features = ["http-api", "tracing-subscriber-utils", "default-tls"] }
 librqbit-dualstack-sockets = "0.7.0"
 axum = "0.8"
+keyring = { version = "3.6.3", features = ["apple-native", "windows-native", "linux-native"] }
 tower-http = { version = "0.6", features = ["fs", "cors"] }
 anyhow.workspace = true
 reqwest = { workspace = true, features = ["json"] }

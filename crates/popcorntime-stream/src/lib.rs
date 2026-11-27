@@ -8,6 +8,7 @@
 //! ffmpeg into HLS (fMP4 segments) under `<cache>/hls`, served on a second
 //! local port; video is copied when it is H.264/HEVC, audio becomes AAC.
 
+pub mod opensubtitles;
 pub mod remux;
 pub mod subtitles;
 pub mod trailer;
