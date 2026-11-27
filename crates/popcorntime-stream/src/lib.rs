@@ -54,6 +54,8 @@ pub struct StreamInfo {
   pub time_offset: f64,
   /// Film length in seconds when known (from ffprobe), else 0.
   pub duration: f64,
+  /// Why the remux didn't start (dead swarm, missing ffmpeg…), for the UI.
+  pub remux_error: Option<String>,
 }
 
 /// Which file to stream inside a multi-file torrent (season packs).
@@ -142,10 +144,10 @@ pub fn pick_file(files: &[(String, u64)], hint: &FileHint) -> Option<usize> {
       return None;
     }
   }
-  if let Some(i) = hint.file_idx.map(|i| i as usize) {
-    if files.get(i).is_some_and(|(n, _)| is_video(n)) {
-      return Some(i);
-    }
+  if let Some(i) = hint.file_idx.map(|i| i as usize)
+    && files.get(i).is_some_and(|(n, _)| is_video(n))
+  {
+    return Some(i);
   }
   videos().max_by_key(|(_, (_, len))| *len).map(|(i, _)| i)
 }
@@ -223,10 +225,10 @@ impl StreamEngine {
   pub async fn stop_if(&self, only: Option<u32>) -> Result<()> {
     {
       let cur = self.current.lock().await;
-      if let (Some(want), Some((id, _))) = (only, *cur) {
-        if want as usize != id {
-          return Ok(());
-        }
+      if let (Some(want), Some((id, _))) = (only, *cur)
+        && want as usize != id
+      {
+        return Ok(());
       }
     }
     self.stop().await
@@ -318,6 +320,7 @@ impl StreamEngine {
       remuxed: false,
       time_offset: 0.0,
       duration: 0.0,
+      remux_error: None,
       url,
       file_name: short,
       file_size: size as f64,
@@ -346,7 +349,10 @@ impl StreamEngine {
         info.duration = r.duration();
         *self.remux.lock().await = Some(r);
       }
-      Err(e) => tracing::warn!("remux unavailable, VLC fallback: {e:#}"),
+      Err(e) => {
+        tracing::warn!("remux unavailable, VLC fallback: {e:#}");
+        info.remux_error = Some(format!("{e:#}"));
+      }
     }
     Ok(info)
   }

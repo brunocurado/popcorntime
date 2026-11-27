@@ -6,6 +6,9 @@ use std::time::{Duration, Instant};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+  let _ = tracing_subscriber::fmt()
+    .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+    .try_init();
   let mut args = std::env::args().skip(1);
   let magnet = args.next().expect("magnet");
   let imdb = args.next().expect("imdb");

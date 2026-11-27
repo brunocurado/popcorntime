@@ -285,6 +285,8 @@ export interface StreamInfo {
 	time_offset: number;
 	/** film length in seconds when known, else 0 */
 	duration: number;
+	/** why the in-app conversion didn't start, if it didn't */
+	remux_error?: string | null;
 }
 
 export interface StreamStatus {

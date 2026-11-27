@@ -45,6 +45,7 @@ export function Header() {
 	const { pathname } = useLocation();
 	const onYtsMovies = pathname === "/movies";
 	const onSeries = pathname === "/series";
+	const onBrowse = pathname.startsWith("/browse");
 	const kind = useMemo(() => {
 		return (searchParams.get("kind") || "MOVIE") as MediaKind;
 	}, [searchParams]);
@@ -91,7 +92,7 @@ export function Header() {
 						<Link
 							className={cn(
 								buttonVariants({ variant: "link" }),
-								kind === "MOVIE" && "text-accent-foreground bg-accent",
+								onBrowse && kind === "MOVIE" && "text-accent-foreground bg-accent",
 								"flex gap-2"
 							)}
 							to={`/browse?kind=MOVIE`}
@@ -102,7 +103,7 @@ export function Header() {
 						<Link
 							className={cn(
 								buttonVariants({ variant: "link" }),
-								kind === "TV_SHOW" && "text-accent-foreground bg-accent",
+								onBrowse && kind === "TV_SHOW" && "text-accent-foreground bg-accent",
 								"flex gap-2"
 							)}
 							to={`/browse/?kind=TV_SHOW`}

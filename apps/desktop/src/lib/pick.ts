@@ -74,7 +74,8 @@ export function scoreCandidate(
 	if (/x265|hevc|h\.?265/i.test(text)) score += 0.3;
 	// Dolby Vision without an HDR10 base shows purple/green on normal screens
 	if (/\bdv\b|dolby.?vision/i.test(text) && !/hdr/i.test(text)) score -= 1.5;
-	if (c.source === "YTS") score += 1; // small mp4s that play directly
+	// YTS: small mp4s that play without conversion, and its API caps seeds at 100
+	if (c.source === "YTS") score += 2;
 	if (bytes === null) score -= 0.5;
 	if (episode) {
 		const tag = episodeTag(episode.season, episode.episode);

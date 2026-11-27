@@ -340,16 +340,16 @@ export function Player({
 		applyCues(videoRef.current, trackRef, vtt, offset - (info?.remuxed ? info.time_offset : 0));
 	}, [vtt, offset, info]);
 
-	// live download stats
+	// live download stats, also while the stream is still being prepared
 	useEffect(() => {
-		if (!info) return;
+		if (error) return;
 		const id = setInterval(() => {
 			streamStatus()
 				.then(setStatus)
 				.catch(() => {});
 		}, 1000);
 		return () => clearInterval(id);
-	}, [info]);
+	}, [error]);
 
 	// next-episode countdown
 	useEffect(() => {
@@ -483,7 +483,14 @@ export function Player({
 			<div className="relative flex min-h-0 flex-1 items-center justify-center">
 				{error && <p className="max-w-lg p-6 text-center text-red-400">{error}</p>}
 				{!error && !info && (
-					<p className="text-white/70">A ligar aos peers e a preparar o vídeo…</p>
+					<div className="flex flex-col items-center gap-1 text-center">
+						<p className="text-white/70">A ligar aos peers e a preparar o vídeo…</p>
+						{status && (
+							<p className="text-xs text-white/50">
+								{status.peers} peers · {status.download_mbps.toFixed(1)} MB/s
+							</p>
+						)}
+					</div>
 				)}
 				{info && playsHere && (
 					// biome-ignore lint/a11y/useMediaCaption: captions come from the subtitle picker
@@ -507,8 +514,15 @@ export function Player({
 						<p>
 							{videoError
 								? "The built-in player can't decode this file (codec)."
-								: `${info.file_name} is not a format the built-in player supports.`}
+								: info.remux_error
+									? `Não deu para converter ${info.file_name}: ${info.remux_error}`
+									: `${info.file_name} is not a format the built-in player supports.`}
 						</p>
+						{info.remux_error && (
+							<p className="text-white/70">
+								Fecha e escolhe outra fonte em “Fontes”, ou tenta no VLC.
+							</p>
+						)}
 						<p className="text-white/70">
 							It keeps streaming here — VLC plays it, with the chosen subtitle.
 						</p>

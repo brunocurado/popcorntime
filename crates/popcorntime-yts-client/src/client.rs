@@ -364,7 +364,7 @@ mod tests {
         "missing tracker {tr}"
       );
     }
-    assert_eq!(magnet.matches("&tr=").count(), 8);
+    assert_eq!(magnet.matches("&tr=").count(), YTS_DEFAULT_TRACKERS.len());
   }
 
   #[test]

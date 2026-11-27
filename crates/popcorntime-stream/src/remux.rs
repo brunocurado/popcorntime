@@ -18,8 +18,10 @@ use std::{
 };
 use tokio::process::{Child, Command};
 
-/// How long to wait for the first playable segment before giving up.
-const FIRST_SEGMENT_TIMEOUT: Duration = Duration::from_secs(180);
+/// How long to wait for the stream header / first segment before giving up
+/// (slow swarms need a minute or two to ramp up).
+const PROBE_TIMEOUT: Duration = Duration::from_secs(240);
+const FIRST_SEGMENT_TIMEOUT: Duration = Duration::from_secs(240);
 const SEGMENT_SECONDS: u32 = 4;
 
 /// ffmpeg/ffprobe from Homebrew (apps launched from Finder get a bare PATH).
@@ -127,6 +129,9 @@ pub fn ffmpeg_args(input: &str, out_dir: &Path, plan: &Plan, start_at: f64) -> V
     .collect();
   if start_at > 0.0 {
     a.extend(["-ss".into(), format!("{start_at:.3}")]);
+  } else {
+    // reading from the start needs no index from the end of the file
+    a.extend(["-seekable".into(), "0".into()]);
   }
   a.extend([
     "-fflags".into(),
@@ -199,12 +204,16 @@ impl Remux {
   pub async fn start(input: &str, out_dir: &Path, start_at: f64) -> Result<Self> {
     let ffmpeg = find_tool("ffmpeg").context("ffmpeg not found (brew install ffmpeg)")?;
     let ffprobe = find_tool("ffprobe").context("ffprobe not found")?;
+    // `-seekable 0`: don't jump to the end of the file for the index — on a
+    // torrent that just started, the last piece can take minutes to arrive.
     let probe_out = tokio::time::timeout(
-      Duration::from_secs(120),
+      PROBE_TIMEOUT,
       Command::new(&ffprobe)
         .args([
           "-v",
           "error",
+          "-seekable",
+          "0",
           "-show_entries",
           "stream=index,codec_type,codec_name:stream_tags=language:format=duration",
           "-of",
@@ -215,7 +224,7 @@ impl Remux {
         .output(),
     )
     .await
-    .context("ffprobe timed out (no peers?)")?
+    .context("the peers sent too little data in 4 minutes — this source looks dead")?
     .context("ffprobe failed to run")?;
     anyhow::ensure!(
       probe_out.status.success(),
@@ -243,10 +252,10 @@ impl Remux {
     let playlist = out_dir.join("index.m3u8");
     let t0 = Instant::now();
     loop {
-      if let Ok(text) = tokio::fs::read_to_string(&playlist).await {
-        if text.contains("#EXTINF") {
-          break;
-        }
+      if let Ok(text) = tokio::fs::read_to_string(&playlist).await
+        && text.contains("#EXTINF")
+      {
+        break;
       }
       if let Some(status) = child.try_wait()? {
         let mut err = String::new();
@@ -387,6 +396,7 @@ mod tests {
     assert!(args.contains("-c:a aac -ac 2 -b:a 192k"));
     assert!(args.contains("-hls_segment_type fmp4"));
     assert!(!args.contains("-ss"));
+    assert!(args.contains("-seekable 0 -fflags"));
   }
 
   #[test]
